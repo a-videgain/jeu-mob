@@ -252,7 +252,7 @@ with col2:
         "Véhicules électriques (%)",
         min_value=0, max_value=100, value=st.session_state.scenario['part_ve'],
         step=5, key="lever_ve",
-        help="VE : 20 gCO2/km (ADEME)"
+        help="VE : 102 gCO2/km (ADEME)"
     )
     
     st.session_state.scenario['part_thermique'] = 100 - st.session_state.scenario['part_ve']
@@ -374,8 +374,8 @@ with st.expander("❓ L'électrification est-elle suffisante ?"):
     
     **À discuter :**
     - Peut-on atteindre -80% uniquement avec l'électrification ?
-    - Quels défis : production électrique, bornes de recharge, ressources (lithium) ?
-    - Émission VE = 20 gCO2/km vs thermique = {st.session_state.emissions['voiture']} gCO2/km
+    - Quels défis : production électrique, ressources en matières premières, coût ?
+    - Émission VE = 102 gCO2/km vs thermique = {st.session_state.emissions['voiture']} gCO2/km
     """)
 
 with st.expander("❓ Le report modal est-il réaliste ?"):
@@ -386,9 +386,9 @@ with st.expander("❓ Le report modal est-il réaliste ?"):
     Votre scénario : **{report_total}% de report modal**
     
     **À discuter :**
-    - Quelles infrastructures nécessaires ? (pistes cyclables, lignes de bus, trains)
+    - Quelles infrastructures nécessaires ? 
     - Acceptabilité sociale : les gens acceptent-ils de changer leurs habitudes ?
-    - Contexte Pays Basque : relief montagneux, habitat dispersé. Quel impact ?
+    - Contexte Pays Basque : forte dépendance à la voiture
     """)
 
 with st.expander("❓ La sobriété est-elle incontournable ?"):
@@ -397,7 +397,7 @@ with st.expander("❓ La sobriété est-elle incontournable ?"):
     
     **À discuter :**
     - Peut-on atteindre -80% sans réduire les km parcourus ?
-    - Comment réduire : télétravail, relocalisations, urbanisme des courtes distances ?
+    - Comment réduire la demande en déplacement?
     - Quels freins sociaux, économiques, culturels ?
     """)
 
