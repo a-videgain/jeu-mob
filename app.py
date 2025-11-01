@@ -87,10 +87,10 @@ def calculer_2050():
     }
     
     # 5. Émissions voiture 2050 (mix énergétique)
-    # Émission VE = 20 gCO2/km (ADEME)
+    # Émission VE = 103 gCO2/km (ADEME)
     emission_voiture_2050 = (
         (st.session_state.scenario['part_thermique'] / 100) * st.session_state.emissions['voiture'] +
-        (st.session_state.scenario['part_ve'] / 100) * 20
+        (st.session_state.scenario['part_ve'] / 100) * 103
     )
     
     # 6. Émissions totales 2050
