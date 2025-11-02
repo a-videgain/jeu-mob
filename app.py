@@ -24,24 +24,25 @@ if 'initialized' not in st.session_state:
         'marche': 10
     }
     
-    # Nombre de déplacements par semaine
+    # Nombre de déplacements par JOUR
     st.session_state.nb_depl = {
-        'voiture': 8,
-        'bus': 4,
-        'train': 1,
-        'velo': 5,
-        'avion': 0.1,  # ~5 vols/an
-        'marche': 10
+        'voiture': 1.1,  # ~8/7
+        'bus': 0.6,      # ~4/7
+        'train': 0.15,   # ~1/7
+        'velo': 0.7,     # ~5/7
+        'avion': 0.014,  # ~5 vols par an / 365 jours
+        'marche': 1.4    # ~10/7
     }
     
-    # Facteurs d'émission (sources ADEME impactCO2 2024)
+    # Facteurs d'émission ACV (Analyse Cycle de Vie = fabrication + usage)
+    # Sources ADEME Base Carbone 2024
     st.session_state.emissions = {
-        'voiture_thermique': 193,  # gCO2/km (moyenne diesel/essence)
-        'voiture_electrique': 20,
-        'bus': 103,
-        'train': 2.4,
-        'velo': 0,
-        'avion': 230,  # Vol moyen courrier
+        'voiture_thermique': 218,  # ACV complet (construction + usage)
+        'voiture_electrique': 103, # ACV complet (batterie + élec France)
+        'bus': 127,                # ACV complet
+        'train': 5.1,              # ACV complet (infrastructure + élec)
+        'velo': 5,                 # ACV complet (fabrication)
+        'avion': 258,              # ACV vol moyen courrier
         'marche': 0
     }
     
@@ -51,25 +52,41 @@ if 'initialized' not in st.session_state:
         'report_velo': 0,
         'report_bus': 0,
         'report_train': 0,
+        'report_train_avion': 0,  # NOUVEAU : report avion vers train
         'part_ve': 3,
-        'part_thermique': 97
+        'part_thermique': 97,
+        'taux_remplissage': 1.3,   # NOUVEAU : taux occupation voiture
+        'reduction_poids': 0        # NOUVEAU : allègement véhicules
     }
 
 # ==================== FONCTIONS ====================
 
-def calculer_bilan(km_dict, emissions_dict, part_ve=0):
-    """Calcule CO2 total en tenant compte du mix voiture thermique/électrique"""
+def calculer_bilan(km_dict, emissions_dict, part_ve=0, taux_remplissage=1.3, reduction_poids=0):
+    """
+    Calcule CO2 total en tenant compte :
+    - du mix voiture thermique/électrique
+    - du taux de remplissage (divise émissions/km par le nb de personnes)
+    - de la réduction de poids (diminue consommation thermique)
+    """
     co2_total = 0
     detail_par_mode = {}
     
     for mode in km_dict:
         if mode == 'voiture':
+            # Effet allègement sur thermique : -10% poids = -7% consommation (ratio classique)
+            facteur_allègement = 1 - (reduction_poids * 0.7 / 100)
+            emission_thermique_ajustee = emissions_dict['voiture_thermique'] * facteur_allègement
+            
             # Mix thermique/électrique
             emission_voiture = (
-                (100 - part_ve) / 100 * emissions_dict['voiture_thermique'] +
+                (100 - part_ve) / 100 * emission_thermique_ajustee +
                 part_ve / 100 * emissions_dict['voiture_electrique']
             )
-            co2_mode = km_dict[mode] * emission_voiture / 1000  # kg CO2
+            
+            # Diviser par taux de remplissage (covoiturage)
+            emission_voiture_par_personne = emission_voiture / taux_remplissage
+            
+            co2_mode = km_dict[mode] * emission_voiture_par_personne / 1000  # kg CO2
         elif mode in ['bus', 'train', 'avion', 'velo', 'marche']:
             co2_mode = km_dict[mode] * emissions_dict[mode] / 1000  # kg CO2
         else:
@@ -101,26 +118,44 @@ def calculer_2050():
     # 2. Parts modales 2025 (%)
     parts_2025 = calculer_parts_modales(st.session_state.km_2025)
     
-    # 3. Report modal (modification des parts)
-    report_total = (st.session_state.scenario['report_velo'] + 
-                    st.session_state.scenario['report_bus'] + 
-                    st.session_state.scenario['report_train'])
+    # 3. Report modal voiture
+    report_total_voiture = (st.session_state.scenario['report_velo'] + 
+                            st.session_state.scenario['report_bus'] + 
+                            st.session_state.scenario['report_train'])
     
+    # 4. Report modal avion → train
+    report_avion_train = st.session_state.scenario['report_train_avion']
+    
+    # 5. Nouvelles parts modales 2050
     parts_2050 = parts_2025.copy()
-    parts_2050['voiture'] = max(0, parts_2025['voiture'] - report_total)
+    parts_2050['voiture'] = max(0, parts_2025['voiture'] - report_total_voiture)
     parts_2050['bus'] = parts_2025['bus'] + st.session_state.scenario['report_bus']
-    parts_2050['train'] = parts_2025['train'] + st.session_state.scenario['report_train']
+    parts_2050['train'] = parts_2025['train'] + st.session_state.scenario['report_train'] + report_avion_train
     parts_2050['velo'] = parts_2025['velo'] + st.session_state.scenario['report_velo']
-    # Avion et marche restent inchangés (pas de report modal sur ces modes)
+    parts_2050['avion'] = max(0, parts_2025['avion'] - report_avion_train)
+    # Marche reste inchangée
     
-    # 4. Km absolus 2050
+    # 6. Km absolus 2050
     km_2050 = {mode: km_total_2050 * part / 100 for mode, part in parts_2050.items()}
     
-    # 5. Calcul bilans
-    bilan_2025 = calculer_bilan(st.session_state.km_2025, st.session_state.emissions, part_ve=3)
-    bilan_2050 = calculer_bilan(km_2050, st.session_state.emissions, part_ve=st.session_state.scenario['part_ve'])
+    # 7. Calcul bilans
+    bilan_2025 = calculer_bilan(
+        st.session_state.km_2025, 
+        st.session_state.emissions, 
+        part_ve=3,
+        taux_remplissage=1.3,
+        reduction_poids=0
+    )
     
-    # 6. Calcul réduction (CORRECTION : si 2050 < 2025 alors réduction négative = bon)
+    bilan_2050 = calculer_bilan(
+        km_2050, 
+        st.session_state.emissions, 
+        part_ve=st.session_state.scenario['part_ve'],
+        taux_remplissage=st.session_state.scenario['taux_remplissage'],
+        reduction_poids=st.session_state.scenario['reduction_poids']
+    )
+    
+    # 8. Calcul réduction
     if bilan_2025['co2_hebdo'] > 0:
         reduction_pct = ((bilan_2025['co2_hebdo'] - bilan_2050['co2_hebdo']) / bilan_2025['co2_hebdo']) * 100
     else:
@@ -189,88 +224,102 @@ with col1:
     )
 
 with col2:
-    st.subheader("🔢 Nombre déplacements/semaine")
+    st.subheader("🔢 Nombre déplacements/jour")
     
     st.session_state.nb_depl['voiture'] = st.number_input(
         "🚗 Voiture",
-        min_value=0, max_value=50, value=st.session_state.nb_depl['voiture'],
-        step=1, key="nb_voiture"
+        min_value=0.0, max_value=10.0, value=st.session_state.nb_depl['voiture'],
+        step=0.1, key="nb_voiture", format="%.1f"
     )
     
     st.session_state.nb_depl['bus'] = st.number_input(
         "🚌 Bus",
-        min_value=0, max_value=30, value=st.session_state.nb_depl['bus'],
-        step=1, key="nb_bus"
+        min_value=0.0, max_value=5.0, value=st.session_state.nb_depl['bus'],
+        step=0.1, key="nb_bus", format="%.1f"
     )
     
     st.session_state.nb_depl['train'] = st.number_input(
         "🚆 Train",
-        min_value=0, max_value=20, value=st.session_state.nb_depl['train'],
-        step=1, key="nb_train"
+        min_value=0.0, max_value=3.0, value=st.session_state.nb_depl['train'],
+        step=0.05, key="nb_train", format="%.2f"
     )
     
     st.session_state.nb_depl['velo'] = st.number_input(
         "🚴 Vélo",
-        min_value=0, max_value=30, value=st.session_state.nb_depl['velo'],
-        step=1, key="nb_velo"
+        min_value=0.0, max_value=5.0, value=st.session_state.nb_depl['velo'],
+        step=0.1, key="nb_velo", format="%.1f"
     )
     
     st.session_state.nb_depl['avion'] = st.number_input(
         "✈️ Avion",
-        min_value=0.0, max_value=5.0, value=st.session_state.nb_depl['avion'],
-        step=0.1, key="nb_avion",
-        help="Moyenne par semaine (ex: 5 vols/an = 0.1/semaine)"
+        min_value=0.0, max_value=0.5, value=st.session_state.nb_depl['avion'],
+        step=0.001, key="nb_avion", format="%.3f",
+        help="Moyenne par jour (ex: 5 vols/an = 0.014/jour)"
     )
     
     st.session_state.nb_depl['marche'] = st.number_input(
         "🚶 Marche",
-        min_value=0, max_value=50, value=st.session_state.nb_depl['marche'],
-        step=1, key="nb_marche"
+        min_value=0.0, max_value=10.0, value=st.session_state.nb_depl['marche'],
+        step=0.1, key="nb_marche", format="%.1f"
     )
 
 with col3:
-    st.subheader("⚠️ Facteurs émission (gCO₂/km)")
-    st.caption("Sources : [impactco2.fr](https://impactco2.fr/outils/transport)")
+    st.subheader("⚠️ Facteurs émission ACV (gCO₂/km)")
+    st.caption("ACV = Analyse Cycle de Vie (fabrication + usage)")
+    st.caption("Sources : [Base Carbone ADEME](https://base-empreinte.ademe.fr/)")
     
     st.session_state.emissions['voiture_thermique'] = st.number_input(
         "🚗 Voiture thermique",
         min_value=0, max_value=500, value=st.session_state.emissions['voiture_thermique'],
         step=10, key="em_voiture_therm",
-        help="ADEME 2024 : 193 gCO2/km (moyenne diesel/essence)"
+        help="ADEME Base Carbone : 218 gCO2e/km (ACV)"
     )
     
     st.session_state.emissions['voiture_electrique'] = st.number_input(
         "🔌 Voiture électrique",
-        min_value=0, max_value=100, value=st.session_state.emissions['voiture_electrique'],
+        min_value=0, max_value=200, value=st.session_state.emissions['voiture_electrique'],
         step=5, key="em_voiture_elec",
-        help="ADEME 2024 : 20 gCO2/km"
+        help="ADEME Base Carbone : 103 gCO2e/km (ACV avec batterie)"
     )
     
     st.session_state.emissions['bus'] = st.number_input(
         "🚌 Bus",
         min_value=0, max_value=300, value=st.session_state.emissions['bus'],
         step=10, key="em_bus",
-        help="ADEME 2024 : 103 gCO2/km"
+        help="ADEME Base Carbone : 127 gCO2e/km (ACV)"
     )
     
     st.session_state.emissions['train'] = st.number_input(
         "🚆 Train",
         min_value=0.0, max_value=50.0, value=st.session_state.emissions['train'],
         step=0.5, key="em_train",
-        help="ADEME 2024 : 2.4 gCO2/km"
+        help="ADEME Base Carbone : 5.1 gCO2e/km (ACV)"
     )
     
     st.session_state.emissions['avion'] = st.number_input(
         "✈️ Avion",
         min_value=0, max_value=500, value=st.session_state.emissions['avion'],
         step=10, key="em_avion",
-        help="ADEME 2024 : 230 gCO2/km (courrier moyen)"
+        help="ADEME Base Carbone : 258 gCO2e/km (ACV courrier moyen)"
     )
     
-    st.info("💡 Vélo et marche : 0 gCO₂/km")
+    st.session_state.emissions['velo'] = st.number_input(
+        "🚴 Vélo",
+        min_value=0, max_value=20, value=st.session_state.emissions['velo'],
+        step=1, key="em_velo",
+        help="ADEME Base Carbone : 5 gCO2e/km (fabrication)"
+    )
+    
+    st.info("💡 Marche : 0 gCO₂/km")
 
 # Calcul bilan 2025
-bilan_2025 = calculer_bilan(st.session_state.km_2025, st.session_state.emissions, part_ve=3)
+bilan_2025 = calculer_bilan(
+    st.session_state.km_2025, 
+    st.session_state.emissions, 
+    part_ve=3,
+    taux_remplissage=1.3,
+    reduction_poids=0
+)
 parts_2025 = calculer_parts_modales(st.session_state.km_2025)
 
 st.divider()
@@ -287,7 +336,7 @@ with col3:
     st.metric("📅 CO₂/an", f"{bilan_2025['co2_annuel']:.0f} kg")
 with col4:
     nb_depl_total = sum(st.session_state.nb_depl.values())
-    st.metric("🔢 Déplacements/semaine", f"{nb_depl_total:.0f}")
+    st.metric("🔢 Déplacements/jour", f"{nb_depl_total:.1f}")
 
 # Graphiques diagnostic
 col1, col2 = st.columns(2)
@@ -333,7 +382,6 @@ with col2:
         'avion': '✈️ Avion',
         'marche': '🚶 Marche'
     })
-    # Trier par émissions décroissantes
     df_emissions = df_emissions.sort_values('CO₂ (kg/semaine)', ascending=False)
     
     fig_emissions = px.bar(
@@ -356,18 +404,15 @@ st.header("🎯 Étape 2 : Construire le scénario 2050")
 
 st.warning("**🎯 Objectif SNBC : Réduire de 80% les émissions CO₂ entre 2025 et 2050**")
 
-# Organisation en accordéons pour meilleure lisibilité
+# Leviers en accordéons
 with st.expander("🔧 **LEVIER 1 : Sobriété** - Réduire les km parcourus", expanded=True):
-    st.markdown("""
-    **Objectif :** Diminuer le besoin de déplacement  
-    **Moyens :** Télétravail, relocalisations, urbanisme des courtes distances, limitation vitesse...
-    """)
+    st.markdown("**Objectif :** Diminuer le besoin de déplacement")
     
     st.session_state.scenario['reduction_km'] = st.slider(
         "Variation des km totaux par rapport à 2025 (%)",
         min_value=-50, max_value=10, value=st.session_state.scenario['reduction_km'],
         step=5, key="lever_reduction",
-        help="Valeurs négatives = réduction des km (ex: -30% = on parcourt 30% de km en moins)"
+        help="Valeurs négatives = réduction des km"
     )
     
     km_total_2025 = sum(st.session_state.km_2025.values())
@@ -380,53 +425,58 @@ with st.expander("🔧 **LEVIER 1 : Sobriété** - Réduire les km parcourus", e
     else:
         st.info(f"➡️ Stabilité : {km_total_2025:.0f} km/sem")
 
-with st.expander("🔧 **LEVIER 2 : Report modal** - Transférer de la voiture vers d'autres modes", expanded=True):
-    st.markdown("""
-    **Objectif :** Faire passer les usagers de la voiture vers des modes moins émetteurs  
-    **Moyens :** Pistes cyclables, réseaux TC denses, trains fréquents, intermodalité...
-    """)
+with st.expander("🔧 **LEVIER 2 : Report modal** - Transférer vers des modes moins émetteurs", expanded=True):
+    st.markdown("**Objectif :** Faire passer les usagers vers des modes décarbonés")
     
+    st.markdown("##### 🚗 Report depuis la voiture")
     col1, col2 = st.columns(2)
     
     with col1:
         st.session_state.scenario['report_velo'] = st.slider(
             "🚴 Voiture → Vélo (%)",
             min_value=0, max_value=35, value=st.session_state.scenario['report_velo'],
-            step=5, key="lever_velo",
-            help="% de la part modale voiture transférée vers le vélo"
+            step=5, key="lever_velo"
         )
         
         st.session_state.scenario['report_bus'] = st.slider(
             "🚌 Voiture → Bus/TC (%)",
             min_value=0, max_value=30, value=st.session_state.scenario['report_bus'],
-            step=5, key="lever_bus",
-            help="% de la part modale voiture transférée vers les TC"
+            step=5, key="lever_bus"
         )
     
     with col2:
         st.session_state.scenario['report_train'] = st.slider(
             "🚆 Voiture → Train (%)",
             min_value=0, max_value=25, value=st.session_state.scenario['report_train'],
-            step=5, key="lever_train",
-            help="% de la part modale voiture transférée vers le train"
+            step=5, key="lever_train"
         )
         
-        report_total = (st.session_state.scenario['report_velo'] + 
-                        st.session_state.scenario['report_bus'] + 
-                        st.session_state.scenario['report_train'])
-        
-        st.metric("📊 Report modal total", f"{report_total}%", help="Somme des transferts depuis la voiture")
+        report_total_voiture = (st.session_state.scenario['report_velo'] + 
+                                st.session_state.scenario['report_bus'] + 
+                                st.session_state.scenario['report_train'])
         
         part_voiture_2025 = parts_2025['voiture']
-        part_voiture_2050_prevision = max(0, part_voiture_2025 - report_total)
+        part_voiture_2050_prevision = max(0, part_voiture_2025 - report_total_voiture)
         
-        st.info(f"Part modale voiture : {part_voiture_2025:.1f}% → {part_voiture_2050_prevision:.1f}%")
+        st.metric("Report total voiture", f"{report_total_voiture}%")
+        st.info(f"Part voiture : {part_voiture_2025:.1f}% → {part_voiture_2050_prevision:.1f}%")
+    
+    st.divider()
+    st.markdown("##### ✈️ Report depuis l'avion")
+    
+    st.session_state.scenario['report_train_avion'] = st.slider(
+        "🚆 Avion → Train (%)",
+        min_value=0, max_value=50, value=st.session_state.scenario['report_train_avion'],
+        step=5, key="lever_train_avion",
+        help="% de la part modale avion transférée vers le train"
+    )
+    
+    part_avion_2025 = parts_2025['avion']
+    part_avion_2050_prevision = max(0, part_avion_2025 - st.session_state.scenario['report_train_avion'])
+    st.info(f"Part avion : {part_avion_2025:.1f}% → {part_avion_2050_prevision:.1f}%")
 
 with st.expander("🔧 **LEVIER 3 : Électrification** - Décarboner le parc automobile", expanded=True):
-    st.markdown("""
-    **Objectif :** Remplacer les véhicules thermiques par des véhicules électriques  
-    **Moyens :** Aides à l'achat, bornes de recharge, production électrique bas-carbone...
-    """)
+    st.markdown("**Objectif :** Remplacer les véhicules thermiques par des véhicules électriques")
     
     col1, col2 = st.columns(2)
     
@@ -434,16 +484,13 @@ with st.expander("🔧 **LEVIER 3 : Électrification** - Décarboner le parc aut
         st.session_state.scenario['part_ve'] = st.slider(
             "Part de véhicules électriques (%)",
             min_value=0, max_value=100, value=st.session_state.scenario['part_ve'],
-            step=5, key="lever_ve",
-            help="Pourcentage du parc automobile en 2050"
+            step=5, key="lever_ve"
         )
         
         st.session_state.scenario['part_thermique'] = 100 - st.session_state.scenario['part_ve']
-        
-        st.info(f"Part thermique restante : {st.session_state.scenario['part_thermique']}%")
+        st.info(f"Part thermique : {st.session_state.scenario['part_thermique']}%")
     
     with col2:
-        # Calcul émission moyenne voiture 2050
         emission_moy_2050 = (
             st.session_state.scenario['part_thermique'] / 100 * st.session_state.emissions['voiture_thermique'] +
             st.session_state.scenario['part_ve'] / 100 * st.session_state.emissions['voiture_electrique']
@@ -460,8 +507,72 @@ with st.expander("🔧 **LEVIER 3 : Électrification** - Décarboner le parc aut
             delta=f"{emission_moy_2050 - emission_moy_2025:.0f} gCO₂/km",
             delta_color="inverse"
         )
+
+with st.expander("🔧 **LEVIER 4 : Optimisation** - Augmenter le taux de remplissage", expanded=True):
+    st.markdown("**Objectif :** Augmenter le nombre de personnes par véhicule")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.session_state.scenario['taux_remplissage'] = st.slider(
+            "Taux de remplissage moyen (pers/véhicule)",
+            min_value=1.0, max_value=3.0, value=st.session_state.scenario['taux_remplissage'],
+            step=0.1, key="lever_remplissage",
+            format="%.1f"
+        )
         
-        st.caption(f"2025 : {emission_moy_2025:.0f} gCO₂/km (3% VE)")
+        taux_2025 = 1.3
+        gain_remplissage = ((st.session_state.scenario['taux_remplissage'] - taux_2025) / taux_2025) * 100
+        
+        if gain_remplissage > 0:
+            st.success(f"✅ +{gain_remplissage:.1f}% de personnes par voiture")
+        else:
+            st.info("➡️ Pas d'amélioration du taux de remplissage")
+    
+    with col2:
+        # Impact sur émissions par personne
+        emission_par_pers_2025 = emission_moy_2025 / taux_2025
+        emission_par_pers_2050 = emission_moy_2050 / st.session_state.scenario['taux_remplissage']
+        
+        st.metric(
+            "Émission par personne",
+            f"{emission_par_pers_2050:.0f} gCO₂/km",
+            delta=f"{emission_par_pers_2050 - emission_par_pers_2025:.0f} gCO₂/km",
+            delta_color="inverse",
+            help="Prend en compte électrification + taux remplissage"
+        )
+
+with st.expander("🔧 **LEVIER 5 : Allègement** - Réduire le poids des véhicules", expanded=True):
+    st.markdown("**Objectif :** Véhicules plus légers, moins consommateurs")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.session_state.scenario['reduction_poids'] = st.slider(
+            "Réduction moyenne du poids des véhicules (%)",
+            min_value=0, max_value=30, value=st.session_state.scenario['reduction_poids'],
+            step=5, key="lever_poids",
+            help="Impact : -10% poids = -7% consommation (thermique uniquement)"
+        )
+        
+        if st.session_state.scenario['reduction_poids'] > 0:
+            reduction_conso = st.session_state.scenario['reduction_poids'] * 0.7
+            st.success(f"✅ Réduction consommation thermique : -{reduction_conso:.1f}%")
+        else:
+            st.info("➡️ Pas d'allègement des véhicules")
+    
+    with col2:
+        # Impact sur émission thermique
+        facteur_allègement = 1 - (st.session_state.scenario['reduction_poids'] * 0.7 / 100)
+        emission_thermique_allegee = st.session_state.emissions['voiture_thermique'] * facteur_allègement
+        
+        st.metric(
+            "Émission voiture thermique",
+            f"{emission_thermique_allegee:.0f} gCO₂/km",
+            delta=f"{emission_thermique_allegee - st.session_state.emissions['voiture_thermique']:.0f} gCO₂/km",
+            delta_color="inverse",
+            help="Allègement n'impacte que les véhicules thermiques"
+        )
 
 st.divider()
 
@@ -474,8 +585,11 @@ with col_reset2:
             'report_velo': 0,
             'report_bus': 0,
             'report_train': 0,
+            'report_train_avion': 0,
             'part_ve': 3,
-            'part_thermique': 97
+            'part_thermique': 97,
+            'taux_remplissage': 1.3,
+            'reduction_poids': 0
         }
         st.rerun()
 
@@ -487,7 +601,7 @@ st.header("📊 Résultats du scénario 2050")
 # Calcul
 resultats = calculer_2050()
 
-# Métriques principales avec couleurs conditionnelles
+# Métriques principales
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -496,16 +610,14 @@ with col1:
         "🌍 Émissions CO₂ 2050",
         f"{resultats['bilan_2050']['co2_annuel']:.0f} kg/an",
         delta=f"{delta_co2_annuel:.0f} kg/an",
-        delta_color="inverse",
-        help="Comparaison avec 2025"
+        delta_color="inverse"
     )
 
 with col2:
     st.metric(
         "📉 Réduction vs 2025",
         f"{resultats['reduction_pct']:.1f}%",
-        delta=None,
-        help="Pourcentage de réduction des émissions"
+        delta=None
     )
 
 with col3:
@@ -516,7 +628,7 @@ with col3:
 
 st.divider()
 
-# Graphiques comparaison détaillée
+# Graphiques comparaison
 col1, col2 = st.columns(2)
 
 with col1:
@@ -542,7 +654,6 @@ with col1:
     fig_evol.update_layout(showlegend=False, height=400)
     st.plotly_chart(fig_evol, use_container_width=True)
     
-    # Indicateur de réduction
     if resultats['reduction_pct'] > 0:
         st.success(f"✅ Réduction de {resultats['reduction_pct']:.1f}%")
     elif resultats['reduction_pct'] < 0:
@@ -604,309 +715,194 @@ with st.expander("❓ Question 1 : Votre scénario atteint-il l'objectif ?", exp
         st.success(f"✅ **Bravo ! Votre scénario atteint l'objectif de -80%**")
         st.write(f"Vous avez réduit les émissions de **{resultats['reduction_pct']:.1f}%** entre 2025 et 2050.")
         st.markdown("""
-        **Questions à approfondir :**
-        - Quels leviers ont été les plus efficaces dans votre scénario ?
-        - Votre scénario vous semble-t-il réaliste au vu du contexte du Pays Basque ?
-        - Quels seraient les principaux défis de mise en œuvre ?
-        - Pourrait-on atteindre l'objectif avec moins de contraintes ?
+        **À approfondir :**
+        - Quels leviers ont été les plus efficaces ?
+        - Votre scénario est-il réaliste pour le Pays Basque ?
+        - Quels seraient les principaux défis ?
         """)
     else:
         st.error(f"❌ **Objectif non atteint**")
         st.write(f"Réduction actuelle : **{resultats['reduction_pct']:.1f}%** (objectif : -80%)")
-        st.write(f"Il manque encore **{80 - resultats['reduction_pct']:.1f} points de pourcentage** pour atteindre l'objectif.")
+        st.write(f"Il manque **{80 - resultats['reduction_pct']:.1f} points** pour atteindre l'objectif.")
         st.markdown("""
-        **Pistes d'amélioration :**
-        - Quels leviers pourriez-vous actionner davantage ?
-        - Quel est le levier le plus efficace ? Le moins coûteux socialement ?
-        - Un scénario 100% technologique (électrification totale) suffit-il ?
-        - Faut-il nécessairement réduire les km parcourus ?
+        **Pistes :**
+        - Quels leviers actionner davantage ?
+        - L'électrification seule suffit-elle ?
+        - Faut-il réduire les km parcourus ?
         """)
 
 with st.expander("❓ Question 2 : L'électrification est-elle suffisante ?"):
-    st.write(f"""
-    **Votre scénario : {st.session_state.scenario['part_ve']}% de véhicules électriques en 2050**
-    
-    Émission moyenne d'une voiture dans votre scénario 2050 :
-    - **{((st.session_state.scenario['part_thermique'] / 100) * st.session_state.emissions['voiture_thermique'] + 
-         (st.session_state.scenario['part_ve'] / 100) * st.session_state.emissions['voiture_electrique']):.0f} gCO₂/km**
-    - Comparé à 2025 : **{((97 / 100) * st.session_state.emissions['voiture_thermique'] + 
-                           (3 / 100) * st.session_state.emissions['voiture_electrique']):.0f} gCO₂/km**
-    """)
-    
+    st.write(f"**Votre scénario : {st.session_state.scenario['part_ve']}% de véhicules électriques**")
     st.markdown("""
-    **Questions à débattre :**
+    **À débattre :**
+    - Production électrique suffisante au Pays Basque ?
+    - Infrastructures de recharge nécessaires ?
+    - Ressources (lithium, cobalt) : impacts ?
+    - Coût : accessible à tous ?
+    - Recyclage des batteries ?
     
-    **Avantages de l'électrification :**
-    - Réduction drastique des émissions : 193 → 20 gCO₂/km
-    - Amélioration de la qualité de l'air (moins de particules)
-    - Réduction du bruit en ville
-    
-    **Limites et défis :**
-    - **Production électrique** : Le Pays Basque produit peu d'électricité. D'où viendra le surplus ?
-    - **Réseau électrique** : Les réseaux actuels peuvent-ils supporter la charge de recharge ?
-    - **Bornes de recharge** : Combien en installer ? Où (domicile, travail, voirie) ?
-    - **Ressources** : Lithium, cobalt, nickel... Impacts environnementaux et géopolitiques de l'extraction ?
-    - **Coût** : Un VE coûte 30-40% plus cher qu'un thermique. Accessible à tous ?
-    - **Recyclage** : Quelle filière pour les batteries en fin de vie ?
-    - **Délais** : Le parc se renouvelle en 15 ans. Sommes-nous dans les temps ?
-    
-    💡 **Question clé :** Peut-on atteindre -80% uniquement par l'électrification, sans toucher aux autres leviers ?
+    💡 Testez : mettez 100% VE, que se passe-t-il ?
     """)
 
 with st.expander("❓ Question 3 : Le report modal est-il réaliste ?"):
     report_total = (st.session_state.scenario['report_velo'] + 
                     st.session_state.scenario['report_bus'] + 
                     st.session_state.scenario['report_train'])
-    
-    st.write(f"""
-    **Votre scénario : {report_total}% de report modal**
-    - Vers vélo : {st.session_state.scenario['report_velo']}%
-    - Vers bus/TC : {st.session_state.scenario['report_bus']}%
-    - Vers train : {st.session_state.scenario['report_train']}%
-    
-    Part modale voiture : **{parts_2025['voiture']:.1f}% → {resultats['parts_2050']['voiture']:.1f}%**
-    """)
-    
+    st.write(f"**Report voiture : {report_total}% | Report avion : {st.session_state.scenario['report_train_avion']}%**")
     st.markdown("""
-    **Infrastructures nécessaires :**
-    
-    **Pour le vélo :**
-    - Réseau de pistes cyclables sécurisées et continues
-    - Stationnement vélo sécurisé (domicile, gares, entreprises)
-    - Développement du vélo à assistance électrique (relief vallonné)
-    - Services de location/réparation
-    
-    **Pour les TC :**
-    - Extension du réseau Chronoplus (nouvelles lignes, fréquence)
-    - Développement de lignes de tram/BHNS
-    - Amélioration Hegobus (liaisons interurbaines)
-    - Tarification attractive, intermodalité
-    
-    **Pour le train :**
-    - Réouverture de lignes fermées (Bayonne-St-Jean-Pied-de-Port ?)
-    - Cadencement des trains (fréquence régulière)
-    - Développement EuskoTren transfrontalier
-    - Connexion avec le réseau TER Nouvelle-Aquitaine
-    
-    **Contraintes du Pays Basque :**
-    - Relief montagneux (Pyrénées) → vélo difficile sans assistance électrique
-    - Habitat dispersé en zone rurale → TC peu rentables
-    - Zone touristique → forte saisonnalité des flux
-    - Frontière espagnole → opportunités de coopération transfrontalière
-    
-    💡 **Question clé :** Ces infrastructures sont-elles finançables et réalisables d'ici 2050 ?
+    **À débattre :**
+    - Infrastructures nécessaires ?
+    - Contexte Pays Basque (relief, habitat dispersé) ?
+    - Acceptabilité sociale ?
+    - Réseau TXIK TXAK suffisant ?
+    - Train transfrontalier (EuskoTren) ?
     """)
 
 with st.expander("❓ Question 4 : La sobriété est-elle incontournable ?"):
-    st.write(f"""
-    **Votre scénario : {st.session_state.scenario['reduction_km']:+}% de variation des km parcourus**
-    
-    Km totaux : **{bilan_2025['km_total']:.0f} km/sem → {resultats['bilan_2050']['km_total']:.0f} km/sem**
-    """)
-    
-    if st.session_state.scenario['reduction_km'] < 0:
-        st.success(f"✅ Vous avez réduit les km de {abs(st.session_state.scenario['reduction_km'])}%")
-    elif st.session_state.scenario['reduction_km'] > 0:
-        st.warning(f"⚠️ Vos km ont augmenté de {st.session_state.scenario['reduction_km']}%")
-    else:
-        st.info("➡️ Les km sont restés stables")
-    
+    st.write(f"**Variation km : {st.session_state.scenario['reduction_km']:+}%**")
     st.markdown("""
-    **La sobriété, c'est quoi ?**
-    - Réduire le **besoin** de mobilité, pas juste changer de mode
-    - Rapprocher lieux de vie, travail, services, loisirs
-    - Questionner nos modes de vie
+    **À débattre :**
+    - Peut-on atteindre -80% sans sobriété ?
+    - Comment réduire les km : télétravail, relocalisations ?
+    - Freins : étalement urbain, liberté de mouvement ?
+    - Justice sociale : qui peut télétravailler ?
     
-    **Leviers de sobriété :**
-    - **Télétravail** : 2-3 jours/semaine → -40% de trajets domicile-travail
-    - **Relocalisations** : Commerces de proximité, services publics locaux
-    - **Urbanisme** : Ville des courtes distances, densification maîtrisée
-    - **Limitation vitesse** : 30 km/h en ville, 110 km/h sur autoroute → -10-15% de consommation
-    - **Sobriété aérienne** : Limiter les vols, favoriser le train
-    
-    **Freins et résistances :**
-    - Liberté de mouvement perçue comme fondamentale
-    - Modèle économique basé sur la croissance et la mobilité
-    - Étalement urbain déjà installé (impossible de tout relocaliser rapidement)
-    - Inégalités : tout le monde ne peut pas télétravailler ou déménager
-    
-    **Expérience Gilets Jaunes (2018) :**
-    - Taxe carbone perçue comme injuste et punitive
-    - Ruraux/périurbains dépendants de la voiture
-    - Absence d'alternatives crédibles
-    → Importance de l'accompagnement et de la justice sociale
-    
-    💡 **Question clé :** Peut-on atteindre -80% sans sobriété ? Testez en mettant le levier 1 à 0% et en jouant uniquement sur les leviers 2 et 3.
+    💡 Testez : mettez réduction_km à 0%, jouez sur les autres leviers
     """)
 
-with st.expander("❓ Question 5 : Quid de l'avion ?"):
-    st.write(f"""
-    **Dans votre scénario :**
-    - Km avion/semaine (2025) : **{st.session_state.km_2025['avion']} km** ({(parts_2025['avion']):.1f}% des km totaux)
-    - Km avion/semaine (2050) : **{resultats['km_2050']['avion']:.0f} km** ({resultats['parts_2050']['avion']:.1f}% des km totaux)
-    - Émissions avion/semaine (2025) : **{bilan_2025['detail_par_mode']['avion']:.2f} kg CO₂**
-    - Émissions avion/semaine (2050) : **{resultats['bilan_2050']['detail_par_mode']['avion']:.2f} kg CO₂**
-    """)
-    
+with st.expander("❓ Question 5 : Avion vs Train ?"):
+    st.write(f"**Report avion → train : {st.session_state.scenario['report_train_avion']}%**")
     st.markdown("""
     **Constats :**
-    - L'avion représente une **part faible des km** mais une **part élevée des émissions**
-    - 230 gCO₂/km vs 193 pour voiture, 103 pour bus, 2.4 pour train
-    - 1 aller-retour Paris-Bayonne (~1600 km) = **370 kg CO₂**, soit 17% du budget annuel d'un habitant moyen !
+    - Avion : {0:.1f}% des km mais forte contribution CO₂
+    - 258 gCO₂/km (ACV) vs 5.1 pour le train
+    - Aéroport Biarritz : 1,2M passagers/an
     
-    **Limites actuelles :**
-    - Pas d'alternative crédible pour l'aviation décarbonée à court/moyen terme
-    - Biocarburants : ressources limitées, concurrence avec alimentation
-    - Hydrogène : technologie immature, coûts élevés
-    - Avion électrique : impossible pour long courrier (densité énergétique batteries insuffisante)
-    
-    **Enjeux au Pays Basque :**
-    - Aéroport Biarritz Pays Basque : 1,2 million de passagers/an (2019)
-    - Majorité de vols tourisme (été) et affaires
-    - Concurrence avec le train pour destinations nationales (Paris, Lyon...)
-    
-    **Pistes de réflexion :**
-    - Limiter les vols courts distance (< 2h30 de train) ?
-    - Taxation du kérosène (actuellement exonéré) ?
-    - Quotas carbone individuels (ex: 3 vols long courrier/vie) ?
-    - Développement du train de nuit
-    
-    💡 **Dans votre scénario actuel, l'avion n'est pas impacté par vos leviers. Est-ce cohérent avec l'objectif -80% ?**
-    """)
+    **À débattre :**
+    - Limiter vols courts (< 2h30 de train) ?
+    - Développer train de nuit ?
+    - Taxation kérosène (actuellement exonéré) ?
+    - Impact sur tourisme/économie locale ?
+    """.format(parts_2025['avion']))
 
-with st.expander("❓ Question 6 : Acceptabilité sociale et justice"):
+with st.expander("❓ Question 6 : Covoiturage et véhicules légers ?"):
+    st.write(f"""**Taux remplissage : {st.session_state.scenario['taux_remplissage']:.1f} pers/véh**  
+**Allègement : -{st.session_state.scenario['reduction_poids']}% de poids**""")
     st.markdown("""
-    **Qui peut/doit faire des efforts ?**
+    **À débattre :**
     
-    **Inégalités de mobilité au Pays Basque :**
-    - **Urbains BAB** : Accès TC, vélo possible, courtes distances
-    - **Périurbains** : Dépendants voiture, distances moyennes
-    - **Ruraux montagne** : Très dépendants voiture, TC quasi inexistants, relief difficile
-    - **Frontaliers** : Trajets quotidiens France-Espagne
-    - **Touristes** : Mobilité saisonnière importante
+    **Covoiturage :**
+    - 1.3 → 2.0 = Division émissions par 1.5 !
+    - Comment favoriser : voies réservées, parkings, applis ?
+    - Limites : flexibilité, trajets compatibles ?
     
-    **Inégalités sociales :**
-    - Revenus modestes : Pas les moyens d'acheter un VE, dépendent de vieux véhicules thermiques
-    - Classes moyennes : Peuvent investir dans VE avec aides, mais coût élevé
-    - Classes aisées : Peuvent acheter VE, garder aussi une thermique, prendre l'avion
+    **Allègement :**
+    - Tendance inverse : SUV de plus en plus lourds
+    - VE plus lourds (batteries) que thermiques
+    - Solutions : petites citadines, véhicules intermédiaires ?
+    - Règlementation : bonus/malus au poids ?
     
-    **Dilemme de l'acceptabilité :**
-    - Une transition **imposée** (taxes, interdictions) génère des résistances (cf. Gilets Jaunes)
-    - Une transition **incitative** (aides, gratuité TC) coûte cher aux finances publiques
-    - Une transition **laissée au marché** est trop lente et inégalitaire
-    
-    **Mesures d'accompagnement nécessaires :**
-    - Aides ciblées sur les ménages modestes
-    - Alternatives crédibles AVANT de contraindre (TC, vélo)
-    - Progressivité (pas de changement brutal)
-    - Concertation territoriale (solutions adaptées à chaque contexte)
-    - Communication positive ("co-bénéfices" : santé, qualité de vie, économies)
-    
-    💡 **Question clé :** Votre scénario est-il socialement acceptable ? Qui sont les "gagnants" et les "perdants" ?
+    💡 Ces leviers sont souvent oubliés mais très efficaces !
     """)
 
-# ==================== SYNTHÈSE PÉDAGOGIQUE ====================
+# ==================== SYNTHÈSE ====================
 
 st.divider()
-st.header("📚 Synthèse : Points clés à retenir")
+st.header("📚 Synthèse : Points clés")
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("""
-    ### ✅ Enseignements principaux
+    ### ✅ Enseignements
     
-    **1. Approche systémique nécessaire**
-    - Aucun levier seul ne suffit
-    - Il faut combiner sobriété + report modal + décarbonation
-    - Les 3 leviers sont **complémentaires**, pas substituables
+    **1. Approche systémique**
+    - Combiner TOUS les leviers
+    - Pas de solution unique
     
     **2. Hiérarchie d'efficacité**
-    - **Sobriété** : Levier le plus puissant (ne pas émettre > émettre moins)
-    - **Report modal** : Efficace mais nécessite infrastructures lourdes
-    - **Électrification** : Importante mais ne résout pas tout
+    - Sobriété : le plus puissant
+    - Report modal : infrastructures lourdes
+    - Électrification : importante mais insuffisante
+    - Covoiturage : impact fort, facile
+    - Allègement : souvent oublié
     
-    **3. Limites de la technologie**
-    - L'électrification a des limites (production, réseaux, ressources)
-    - Pas de solution miracle pour l'avion
-    - La technologie seule ne peut pas tout résoudre
-    
-    **4. Importance du contexte territorial**
-    - Pays Basque ≠ Paris ≠ Creuse
-    - Relief, densité, climat, culture : solutions différenciées
-    - Penser "système de mobilité" pas juste "modes"
+    **3. Contexte territorial**
+    - Pays Basque ≠ Paris
+    - Solutions différenciées
     """)
 
 with col2:
     st.markdown("""
-    ### ⚠️ Défis à relever
+    ### ⚠️ Défis
     
     **1. Acceptabilité sociale**
-    - Changements de comportement difficiles
-    - Liberté de mouvement = valeur forte
-    - Justice sociale indispensable
+    - Changements comportementaux
+    - Justice sociale nécessaire
     
     **2. Temporalité**
-    - 2050 = dans 25 ans seulement
-    - Renouvellement parc auto : 15 ans
-    - Infrastructures TC/vélo : 10-20 ans
-    → **Il faut agir MAINTENANT**
+    - 2050 = 25 ans
+    - Agir MAINTENANT
     
     **3. Financement**
-    - Infrastructures coûteuses (milliards €)
-    - Aides individuelles nécessaires
-    - Qui paie ? État, collectivités, usagers ?
+    - Infrastructures coûteuses
+    - Qui paie ?
     
     **4. Gouvernance**
-    - Compétences multiples (État, Région, Agglo, Communes)
-    - Nécessité de coordination
-    - Implication citoyenne essentielle
+    - Multiples acteurs
+    - Coordination essentielle
     """)
 
 st.info("""
 **🎯 Message clé :**  
-Atteindre -80% d'ici 2050 est **techniquement possible** mais **socialement et politiquement exigeant**.  
-Cela nécessite une **transformation profonde** de nos modes de vie et de notre organisation territoriale.  
+Atteindre -80% est **techniquement possible** mais **socialement exigeant**.  
 La question n'est pas "est-ce possible ?" mais "comment faire pour que ce soit acceptable et juste ?".
 """)
 
 # ==================== RESSOURCES ====================
 
 st.divider()
-st.header("📖 Pour aller plus loin")
+st.header("📖 Ressources bibliographiques")
 
-col1, col2, col3 = st.columns(3)
+st.markdown("""
+### 📊 Sources de données (faciles à lire)
 
-with col1:
-    st.markdown("""
-    **📊 Données et références**
-    - [impactCO2.fr (ADEME)](https://impactco2.fr/outils/transport) - Facteurs d'émission
-    - [SNBC 2050](https://www.ecologie.gouv.fr/strategie-nationale-bas-carbone-snbc) - Stratégie nationale
-    - [Transitions 2050 (ADEME)](https://transitions2050.ademe.fr/) - Scénarios prospectifs
-    """)
+**Facteurs d'émission :**
+- [Base Carbone ADEME](https://base-empreinte.ademe.fr/) - Base de données officielle
+- [Documentation Base Carbone](https://bilans-ges.ademe.fr/documentation/UPLOAD_DOC_FR/index.htm?transport_de_personnes.htm) - Guide méthodologique
+- [impactCO2.fr](https://impactco2.fr/outils/transport) - Comparateur simplifié
 
-with col2:
-    st.markdown("""
-    **🎓 Études et rapports**
-    - [The Shift Project](https://theshiftproject.org/) - Plan de transformation
-    - [Négawatt](https://negawatt.org/) - Scénario énergétique
-    - [B&L évolution](https://www.bl-evolution.com/) - Mobilité bas-carbone
-    """)
+**Scénarios prospectifs :**
+- [ADEME Transitions 2050](https://transitions2050.ademe.fr/) - 4 scénarios nationaux
+- [SNBC](https://www.ecologie.gouv.fr/strategie-nationale-bas-carbone-snbc) - Stratégie officielle
+- [The Shift Project - Mobilité](https://theshiftproject.org/article/decarboner-la-mobilite-dans-les-zones-de-moyenne-densite/) - Analyse zones moyennes densités
 
-with col3:
-    st.markdown("""
-    **🏛️ Acteurs locaux**
-    - [Communauté Pays Basque](https://www.communaute-paysbasque.fr/)
-    - [Chronoplus](https://www.chronoplus.eu/) - TC urbains
-    - [Hegobus](https://www.hegobus.fr/) - TC interurbains
-    """)
+**Spécificités territoriales :**
+- [Communauté Pays Basque - Plan Climat](https://www.communaute-paysbasque.fr/) 
+- [TXIK TXAK](https://www.txiktxak.eus/) - Réseau de transport en commun
+- [Observatoire des mobilités Nouvelle-Aquitaine](https://www.obs-mobilites.com/)
+
+### 📚 Pour approfondir
+
+**Ouvrages accessibles :**
+- "Le futur de la mobilité" - Aurélien Bigo (2024)
+- "Ralentir ou périr" - Timothée Parrique (2022)
+- "Comment éviter un avenir climatique catastrophique" - Bill Gates (2021)
+
+**Articles de référence :**
+- Bigo A. (2020) "Les transports face au défi de la transition énergétique"
+- Jancovici JM & Grandjean A. (2006) "Le plein s'il vous plaît !"
+
+**Podcasts :**
+- Greenletter Club (épisodes mobilité)
+- Le Réveilleur (transport)
+""")
 
 # ==================== EXPORT ====================
 
 st.divider()
 st.subheader("💾 Exporter votre scénario")
 
-# Résumé textuel du scénario
 resume_scenario = f"""
 ═══════════════════════════════════════════════════
 SCÉNARIO MOBILITÉ PAYS BASQUE 2050
@@ -914,7 +910,7 @@ SCÉNARIO MOBILITÉ PAYS BASQUE 2050
 
 📅 ANNÉE DE RÉFÉRENCE : 2025
 
-─────────────────────────────────────────────────── 
+───────────────────────────────────────────────────
 📊 DIAGNOSTIC 2025
 ───────────────────────────────────────────────────
 
@@ -929,28 +925,31 @@ Distances hebdomadaires :
 TOTAL : {bilan_2025['km_total']:.0f} km/semaine
 
 Émissions 2025 :
-  • Hebdomadaire : {bilan_2025['co2_hebdo']:.2f} kg CO₂
-  • Annuelle : {bilan_2025['co2_annuel']:.0f} kg CO₂
+  • Hebdomadaire : {bilan_2025['co2_hebdo']:.2f} kg CO₂e
+  • Annuelle : {bilan_2025['co2_annuel']:.0f} kg CO₂e
 
 ───────────────────────────────────────────────────
-🎯 SCÉNARIO 2050
+🎯 SCÉNARIO 2050 - LEVIERS ACTIONNÉS
 ───────────────────────────────────────────────────
-
-LEVIERS ACTIONNÉS :
 
 1. Sobriété :
-   • Variation km totaux : {st.session_state.scenario['reduction_km']:+}%
-   • {bilan_2025['km_total']:.0f} km/sem → {resultats['bilan_2050']['km_total']:.0f} km/sem
+   • Variation km : {st.session_state.scenario['reduction_km']:+}%
 
 2. Report modal :
    • Voiture → Vélo : {st.session_state.scenario['report_velo']}%
-   • Voiture → Bus/TC : {st.session_state.scenario['report_bus']}%
+   • Voiture → Bus : {st.session_state.scenario['report_bus']}%
    • Voiture → Train : {st.session_state.scenario['report_train']}%
-   • TOTAL : {st.session_state.scenario['report_velo'] + st.session_state.scenario['report_bus'] + st.session_state.scenario['report_train']}%
+   • Avion → Train : {st.session_state.scenario['report_train_avion']}%
 
 3. Électrification :
    • Véhicules électriques : {st.session_state.scenario['part_ve']}%
    • Véhicules thermiques : {st.session_state.scenario['part_thermique']}%
+
+4. Optimisation :
+   • Taux remplissage : {st.session_state.scenario['taux_remplissage']:.1f} pers/véh
+
+5. Allègement :
+   • Réduction poids : -{st.session_state.scenario['reduction_poids']}%
 
 ───────────────────────────────────────────────────
 📈 RÉSULTATS 2050
@@ -967,8 +966,8 @@ Distances 2050 :
 TOTAL : {resultats['bilan_2050']['km_total']:.0f} km/semaine
 
 Émissions 2050 :
-  • Hebdomadaire : {resultats['bilan_2050']['co2_hebdo']:.2f} kg CO₂
-  • Annuelle : {resultats['bilan_2050']['co2_annuel']:.0f} kg CO₂
+  • Hebdomadaire : {resultats['bilan_2050']['co2_hebdo']:.2f} kg CO₂e
+  • Annuelle : {resultats['bilan_2050']['co2_annuel']:.0f} kg CO₂e
 
 ───────────────────────────────────────────────────
 🎯 BILAN
@@ -977,11 +976,11 @@ TOTAL : {resultats['bilan_2050']['km_total']:.0f} km/semaine
 Réduction des émissions : {resultats['reduction_pct']:.1f}%
 Objectif SNBC (-80%) : {"✅ ATTEINT" if resultats['objectif_atteint'] else "❌ NON ATTEINT"}
 
-{f"Écart restant : {80 - resultats['reduction_pct']:.1f} points de %" if not resultats['objectif_atteint'] else ""}
+{f"Écart restant : {80 - resultats['reduction_pct']:.1f} points" if not resultats['objectif_atteint'] else ""}
 
 ═══════════════════════════════════════════════════
-Générateur de scénarios - Mobilité Pays Basque 2050
-Sources : ADEME impactCO2, SNBC
+Sources : Base Carbone ADEME (ACV), SNBC 2050
+Application pédagogique - Pays Basque 2025-2050
 ═══════════════════════════════════════════════════
 """
 
@@ -998,15 +997,15 @@ st.download_button(
 st.divider()
 st.markdown("""
 <div style='text-align: center; color: #6b7280; font-size: 0.875rem; padding: 1rem;'>
-    <p><strong>📚 Sources de données :</strong></p>
+    <p><strong>📚 Sources :</strong></p>
     <p>
-        <a href='https://impactco2.fr/outils/transport' target='_blank'>impactCO2.fr (ADEME 2024)</a> • 
+        <a href='https://base-empreinte.ademe.fr/' target='_blank'>Base Carbone ADEME</a> (ACV) • 
         <a href='https://www.ecologie.gouv.fr/strategie-nationale-bas-carbone-snbc' target='_blank'>SNBC 2050</a> • 
         <a href='https://transitions2050.ademe.fr/' target='_blank'>ADEME Transitions 2050</a>
     </p>
     <p style='margin-top: 1rem;'>
-        <strong>🎓 Application pédagogique</strong> • Pays Basque Français • Année de référence : 2025<br>
-        ⚠️ Valeurs territoriales indicatives • À affiner selon données locales disponibles
+        <strong>🎓 Application pédagogique</strong> • Communauté Pays Basque • 2025-2050<br>
+        Réseau de transport : <strong>TXIK TXAK</strong> (anciens Chronoplus et Hegobus)
     </p>
 </div>
 """, unsafe_allow_html=True)
