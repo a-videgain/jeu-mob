@@ -39,15 +39,15 @@ if 'initialized' not in st.session_state:
     st.session_state.temps_stationnement_2025 = 95  # %
     
     # Facteurs d'émission ACV (Analyse Cycle de Vie = fabrication + usage)
-    # Sources ADEME Base Carbone 2024
+    # Sources ADEME Base Carbone 2024 + impactCO2
     st.session_state.emissions = {
         'voiture_thermique': 218,  # ACV complet (construction + usage)
         'voiture_electrique': 103, # ACV complet (batterie + élec France)
         'bus': 127,                # ACV complet
         'train': 5.1,              # ACV complet (infrastructure + élec)
         'velo': 5,                 # ACV complet (fabrication)
-        'avion': 258,              # ACV vol moyen courrier
-        'marche': 0
+        'avion': 225,              # impactCO2.fr vol moyen courrier
+        'marche': 0                # Modifiable par l'utilisateur
     }
     
     # Scénario 2050
@@ -189,74 +189,117 @@ st.markdown("**Outil pédagogique simplifié** • Année de référence : 2025 
 st.header("📍 Étape 1 : Diagnostic 2025")
 st.info("**Habitant moyen du Pays Basque** (environ 300 000 habitants)")
 
-# Saisie des données - ALIGNEMENT VISUEL
+# Saisie des données - ALIGNEMENT VISUEL AMÉLIORÉ avec st.columns fixe
 st.subheader("🛣️ Distances et déplacements")
 
-# Créer un tableau aligné
-col_mode, col_km, col_nb, col_emission = st.columns([2, 2, 2, 2])
-
-with col_mode:
+# En-têtes
+header_cols = st.columns([2, 2, 2, 2])
+with header_cols[0]:
     st.markdown("**Mode**")
-    st.markdown("🚗 Voiture")
-    st.markdown("🚌 Bus / TC")
-    st.markdown("🚆 Train")
-    st.markdown("🚴 Vélo")
-    st.markdown("✈️ Avion")
-    st.markdown("🚶 Marche")
-
-with col_km:
+with header_cols[1]:
     st.markdown("**Km/semaine**")
-    st.session_state.km_2025['voiture'] = st.number_input("km_v", 0, 500, st.session_state.km_2025['voiture'], 10, label_visibility="collapsed")
-    st.session_state.km_2025['bus'] = st.number_input("km_b", 0, 200, st.session_state.km_2025['bus'], 5, label_visibility="collapsed")
-    st.session_state.km_2025['train'] = st.number_input("km_t", 0, 100, st.session_state.km_2025['train'], 5, label_visibility="collapsed")
-    st.session_state.km_2025['velo'] = st.number_input("km_ve", 0, 100, st.session_state.km_2025['velo'], 5, label_visibility="collapsed")
-    st.session_state.km_2025['avion'] = st.number_input("km_a", 0, 500, st.session_state.km_2025['avion'], 10, label_visibility="collapsed")
-    st.session_state.km_2025['marche'] = st.number_input("km_m", 0, 50, st.session_state.km_2025['marche'], 5, label_visibility="collapsed")
-
-with col_nb:
+with header_cols[2]:
     st.markdown("**Dépl./semaine**")
-    st.session_state.nb_depl['voiture'] = st.number_input("nb_v", 0, 50, st.session_state.nb_depl['voiture'], 1, label_visibility="collapsed")
-    st.session_state.nb_depl['bus'] = st.number_input("nb_b", 0, 30, st.session_state.nb_depl['bus'], 1, label_visibility="collapsed")
-    st.session_state.nb_depl['train'] = st.number_input("nb_t", 0, 20, st.session_state.nb_depl['train'], 1, label_visibility="collapsed")
-    st.session_state.nb_depl['velo'] = st.number_input("nb_ve", 0, 30, st.session_state.nb_depl['velo'], 1, label_visibility="collapsed")
-    st.session_state.nb_depl['avion'] = st.number_input("nb_a", 0.0, 5.0, st.session_state.nb_depl['avion'], 0.1, format="%.1f", label_visibility="collapsed")
-    st.session_state.nb_depl['marche'] = st.number_input("nb_m", 0, 50, st.session_state.nb_depl['marche'], 1, label_visibility="collapsed")
-
-with col_emission:
+with header_cols[3]:
     st.markdown("**Émission ACV (gCO₂/km)**")
-    st.session_state.emissions['voiture_thermique'] = st.number_input("em_v", 0, 500, st.session_state.emissions['voiture_thermique'], 10, label_visibility="collapsed", help="Voiture thermique")
-    st.session_state.emissions['bus'] = st.number_input("em_b", 0, 300, st.session_state.emissions['bus'], 10, label_visibility="collapsed")
-    st.session_state.emissions['train'] = st.number_input("em_t", 0.0, 50.0, st.session_state.emissions['train'], 0.5, label_visibility="collapsed")
-    st.session_state.emissions['velo'] = st.number_input("em_ve", 0, 20, st.session_state.emissions['velo'], 1, label_visibility="collapsed")
-    st.session_state.emissions['avion'] = st.number_input("em_a", 0, 500, st.session_state.emissions['avion'], 10, label_visibility="collapsed")
-    st.text("0")
+
+# Voiture
+cols = st.columns([2, 2, 2, 2])
+with cols[0]:
+    st.markdown("🚗 Voiture")
+with cols[1]:
+    st.session_state.km_2025['voiture'] = st.number_input("km_v", 0, 500, st.session_state.km_2025['voiture'], 10, label_visibility="collapsed", key="input_km_v")
+with cols[2]:
+    st.session_state.nb_depl['voiture'] = st.number_input("nb_v", 0, 50, st.session_state.nb_depl['voiture'], 1, label_visibility="collapsed", key="input_nb_v")
+with cols[3]:
+    st.session_state.emissions['voiture_thermique'] = st.number_input("em_v", 0, 500, st.session_state.emissions['voiture_thermique'], 10, label_visibility="collapsed", help="Voiture thermique", key="input_em_v")
+
+# Bus
+cols = st.columns([2, 2, 2, 2])
+with cols[0]:
+    st.markdown("🚌 Bus / TC")
+with cols[1]:
+    st.session_state.km_2025['bus'] = st.number_input("km_b", 0, 200, st.session_state.km_2025['bus'], 5, label_visibility="collapsed", key="input_km_b")
+with cols[2]:
+    st.session_state.nb_depl['bus'] = st.number_input("nb_b", 0, 30, st.session_state.nb_depl['bus'], 1, label_visibility="collapsed", key="input_nb_b")
+with cols[3]:
+    st.session_state.emissions['bus'] = st.number_input("em_b", 0, 300, st.session_state.emissions['bus'], 10, label_visibility="collapsed", key="input_em_b")
+
+# Train
+cols = st.columns([2, 2, 2, 2])
+with cols[0]:
+    st.markdown("🚆 Train")
+with cols[1]:
+    st.session_state.km_2025['train'] = st.number_input("km_t", 0, 100, st.session_state.km_2025['train'], 5, label_visibility="collapsed", key="input_km_t")
+with cols[2]:
+    st.session_state.nb_depl['train'] = st.number_input("nb_t", 0, 20, st.session_state.nb_depl['train'], 1, label_visibility="collapsed", key="input_nb_t")
+with cols[3]:
+    st.session_state.emissions['train'] = st.number_input("em_t", 0.0, 50.0, st.session_state.emissions['train'], 0.5, label_visibility="collapsed", key="input_em_t")
+
+# Vélo
+cols = st.columns([2, 2, 2, 2])
+with cols[0]:
+    st.markdown("🚴 Vélo")
+with cols[1]:
+    st.session_state.km_2025['velo'] = st.number_input("km_ve", 0, 100, st.session_state.km_2025['velo'], 5, label_visibility="collapsed", key="input_km_ve")
+with cols[2]:
+    st.session_state.nb_depl['velo'] = st.number_input("nb_ve", 0, 30, st.session_state.nb_depl['velo'], 1, label_visibility="collapsed", key="input_nb_ve")
+with cols[3]:
+    st.session_state.emissions['velo'] = st.number_input("em_ve", 0, 20, st.session_state.emissions['velo'], 1, label_visibility="collapsed", key="input_em_ve")
+
+# Avion
+cols = st.columns([2, 2, 2, 2])
+with cols[0]:
+    st.markdown("✈️ Avion")
+with cols[1]:
+    st.session_state.km_2025['avion'] = st.number_input("km_a", 0, 500, st.session_state.km_2025['avion'], 10, label_visibility="collapsed", key="input_km_a")
+with cols[2]:
+    st.session_state.nb_depl['avion'] = st.number_input("nb_a", 0.0, 5.0, st.session_state.nb_depl['avion'], 0.1, format="%.1f", label_visibility="collapsed", key="input_nb_a")
+with cols[3]:
+    st.session_state.emissions['avion'] = st.number_input("em_a", 0, 500, st.session_state.emissions['avion'], 10, label_visibility="collapsed", help="Source: impactCO2.fr", key="input_em_a")
+
+# Marche
+cols = st.columns([2, 2, 2, 2])
+with cols[0]:
+    st.markdown("🚶 Marche")
+with cols[1]:
+    st.session_state.km_2025['marche'] = st.number_input("km_m", 0, 50, st.session_state.km_2025['marche'], 5, label_visibility="collapsed", key="input_km_m")
+with cols[2]:
+    st.session_state.nb_depl['marche'] = st.number_input("nb_m", 0, 50, st.session_state.nb_depl['marche'], 1, label_visibility="collapsed", key="input_nb_m")
+with cols[3]:
+    st.session_state.emissions['marche'] = st.number_input("em_m", 0, 10, st.session_state.emissions['marche'], 1, label_visibility="collapsed", key="input_em_m")
 
 st.divider()
 
-# Caractéristiques voiture et VE
+# Caractéristiques voiture
+st.subheader("🚗 Caractéristiques voiture 2025")
+
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.subheader("🚗 Caractéristiques voiture 2025")
     st.session_state.taux_occupation_2025 = st.number_input(
         "Taux d'occupation moyen (pers/véhicule)",
         min_value=1.0, max_value=4.0, value=st.session_state.taux_occupation_2025,
         step=0.1, format="%.1f"
     )
+
+with col2:
     st.session_state.temps_stationnement_2025 = st.number_input(
         "Temps stationné (%)",
         min_value=80, max_value=99, value=st.session_state.temps_stationnement_2025,
         step=1
     )
 
-with col2:
+with col3:
     st.markdown("**💡 Sources**")
     st.caption("[Base Carbone ADEME](https://base-empreinte.ademe.fr/)")
-    st.caption("ACV = Analyse Cycle de Vie")
-    st.caption("(fabrication + usage)")
+    st.caption("[impactCO2.fr](https://impactco2.fr/outils/transport) (avion: 225g)")
 
-with col3:
-    # Bouton validation
+st.divider()
+
+# Bouton validation CENTRÉ
+col_space1, col_btn, col_space2 = st.columns([1, 1, 1])
+with col_btn:
     if st.button("✅ Valider le bilan 2025", type="primary", use_container_width=True):
         st.session_state.bilan_2025_valide = True
         st.rerun()
@@ -331,7 +374,7 @@ with col2:
     
     df_emissions = pd.DataFrame({
         'Mode': list(bilan_2025['detail_par_mode'].keys()),
-        'CO₂ (kg/semaine)': list(bilan_2025['detail_par_mode'].values())
+        'CO₂ (kg/an)': [v * 52 for v in bilan_2025['detail_par_mode'].values()]  # ANNUEL
     })
     df_emissions['Mode'] = df_emissions['Mode'].map({
         'voiture': '🚗 Voiture',
@@ -341,18 +384,18 @@ with col2:
         'avion': '✈️ Avion',
         'marche': '🚶 Marche'
     })
-    df_emissions = df_emissions.sort_values('CO₂ (kg/semaine)', ascending=False)
+    df_emissions = df_emissions.sort_values('CO₂ (kg/an)', ascending=False)
     
     fig_emissions = px.bar(
         df_emissions,
         x='Mode',
-        y='CO₂ (kg/semaine)',
-        text='CO₂ (kg/semaine)',
-        color='CO₂ (kg/semaine)',
+        y='CO₂ (kg/an)',
+        text='CO₂ (kg/an)',
+        color='CO₂ (kg/an)',
         color_continuous_scale='Reds',
-        title="Contribution aux émissions"
+        title="Contribution aux émissions (annuel)"
     )
-    fig_emissions.update_traces(texttemplate='%{text:.2f} kg', textposition='outside')
+    fig_emissions.update_traces(texttemplate='%{text:.0f} kg', textposition='outside')
     fig_emissions.update_layout(showlegend=False)
     st.plotly_chart(fig_emissions, use_container_width=True)
 
@@ -478,6 +521,23 @@ with st.expander("🔧 **LEVIER 3 : Taux de remplissage** - Augmenter l'occupati
 with st.expander("🔧 **LEVIER 4 : Électrification** - Décarboner le parc automobile", expanded=True):
     st.markdown("**Objectif :** Remplacer véhicules thermiques par électriques")
     
+    # Facteur émission VE déplacé ici
+    st.markdown("##### 🔌 Facteur d'émission véhicule électrique")
+    col_ve1, col_ve2 = st.columns([2, 1])
+    with col_ve1:
+        st.session_state.emissions['voiture_electrique'] = st.number_input(
+            "Voiture électrique (gCO₂/km ACV)",
+            min_value=0, max_value=200, value=st.session_state.emissions['voiture_electrique'],
+            step=5,
+            help="ADEME Base Carbone : 103 gCO2e/km (ACV avec batterie)"
+        )
+    with col_ve2:
+        st.caption("Base Carbone ADEME")
+        st.caption("Inclut fabrication batterie")
+    
+    st.divider()
+    st.markdown("##### ⚡ Composition du parc 2050")
+    
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         st.markdown(f"Part véhicules électriques : **{st.session_state.scenario['part_ve']}%**")
@@ -518,9 +578,10 @@ with st.expander("🔧 **LEVIER 5 : Allègement** - Réduire le poids des véhic
 
 st.divider()
 
-# Bouton reset
-col_reset1, col_reset2, col_reset3 = st.columns([1, 1, 1])
-with col_reset2:
+# Boutons reset et validation
+col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+
+with col_btn1:
     if st.button("🔄 Réinitialiser tous les leviers", use_container_width=True, type="secondary", key="reset_btn"):
         # Réinitialisation complète
         st.session_state.scenario['reduction_km'] = 0
@@ -532,11 +593,29 @@ with col_reset2:
         st.session_state.scenario['part_ve'] = 3
         st.session_state.scenario['part_thermique'] = 97
         st.session_state.scenario['reduction_poids'] = 0
+        st.session_state.scenario_2050_valide = False
         st.rerun()
+
+with col_btn2:
+    pass  # Colonne vide pour espacement
+
+with col_btn3:
+    if st.button("✅ Valider le scénario 2050", type="primary", use_container_width=True, key="valider_2050"):
+        st.session_state.scenario_2050_valide = True
+        st.rerun()
+
+# Vérifier si scénario validé
+if 'scenario_2050_valide' not in st.session_state:
+    st.session_state.scenario_2050_valide = False
+
+if not st.session_state.scenario_2050_valide:
+    st.warning("⚠️ Ajustez les leviers ci-dessus puis cliquez sur **Valider le scénario 2050** pour voir les résultats")
+    st.stop()
 
 # ==================== RÉSULTATS ====================
 
 st.divider()
+st.success("✅ Scénario 2050 validé")
 st.header("📊 Résultats du scénario 2050")
 
 # Calcul
@@ -639,8 +718,8 @@ for mode in ['voiture', 'bus', 'train', 'velo', 'avion', 'marche']:
         'Km/sem 2050': f"{resultats['km_2050'][mode]:.0f}",
         'Part 2025 (%)': f"{parts_2025[mode]:.1f}%",
         'Part 2050 (%)': f"{resultats['parts_2050'][mode]:.1f}%",
-        'CO₂ 2025 (kg/sem)': f"{bilan_2025['detail_par_mode'][mode]:.2f}",
-        'CO₂ 2050 (kg/sem)': f"{resultats['bilan_2050']['detail_par_mode'][mode]:.2f}"
+        'CO₂ 2025 (kg/an)': f"{bilan_2025['detail_par_mode'][mode] * 52:.0f}",
+        'CO₂ 2050 (kg/an)': f"{resultats['bilan_2050']['detail_par_mode'][mode] * 52:.0f}"
     })
 
 df_comparaison = pd.DataFrame(data_comparaison)
