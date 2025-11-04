@@ -250,19 +250,24 @@ with col1:
     )
 
 with col2:
-    st.subheader("🔌 Facteur émission VE")
-    st.session_state.emissions['voiture_electrique'] = st.number_input(
-        "Voiture électrique (gCO₂/km ACV)",
-        min_value=0, max_value=200, value=st.session_state.emissions['voiture_electrique'],
-        step=5,
-        help="ADEME Base Carbone : 103 gCO2e/km (ACV avec batterie)"
-    )
-
-with col3:
     st.markdown("**💡 Sources**")
     st.caption("[Base Carbone ADEME](https://base-empreinte.ademe.fr/)")
     st.caption("ACV = Analyse Cycle de Vie")
     st.caption("(fabrication + usage)")
+
+with col3:
+    # Bouton validation
+    if st.button("✅ Valider le bilan 2025", type="primary", use_container_width=True):
+        st.session_state.bilan_2025_valide = True
+        st.rerun()
+
+# Calculs seulement si validé
+if 'bilan_2025_valide' not in st.session_state:
+    st.session_state.bilan_2025_valide = False
+
+if not st.session_state.bilan_2025_valide:
+    st.warning("⚠️ Complétez les données ci-dessus puis cliquez sur **Valider le bilan 2025**")
+    st.stop()
 
 # Calcul bilan 2025
 bilan_2025 = calculer_bilan(
@@ -277,6 +282,7 @@ parts_2025 = calculer_parts_modales(st.session_state.km_2025)
 st.divider()
 
 # Affichage métriques principales
+st.success("✅ Bilan 2025 validé")
 st.subheader("📊 Bilan 2025")
 
 col1, col2, col3, col4 = st.columns(4)
