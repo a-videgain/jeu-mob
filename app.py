@@ -12,6 +12,15 @@ st.set_page_config(
 
 # ==================== CONSTANTES ====================
 POPULATION_PB = 350000  # habitants Pays Basque (EMD)
+DISTANCE_TERRE_SOLEIL = 149.6e6  # km
+
+# ==================== FONCTION FORMATAGE ====================
+def format_nombre(n, decimales=0):
+    """Formate un nombre avec espaces entre milliers"""
+    if decimales == 0:
+        return f"{n:,.0f}".replace(',', ' ')
+    else:
+        return f"{n:,.{decimales}f}".replace(',', ' ')
 
 # ==================== INITIALISATION ====================
 if 'initialized' not in st.session_state:
@@ -29,14 +38,14 @@ if 'initialized' not in st.session_state:
         'marche': 70      # Mkm/an
     }
     
-    # Nombre de déplacements par jour par habitant (moyenne)
+    # Nombre de déplacements par an par habitant (moyenne)
     st.session_state.nb_depl_hab = {
-        'voiture': 1.1,
-        'bus': 0.6,
-        'train': 0.15,
-        'velo': 0.7,
-        'avion': 0.014,
-        'marche': 1.4
+        'voiture': 401.5,    # ~1.1/jour × 365
+        'bus': 219.0,        # ~0.6/jour × 365
+        'train': 54.75,      # ~0.15/jour × 365
+        'velo': 255.5,       # ~0.7/jour × 365
+        'avion': 5.11,       # ~0.014/jour × 365
+        'marche': 511.0      # ~1.4/jour × 365
     }
     
     # Caractéristiques parc automobile 2025 Pays Basque
@@ -48,13 +57,22 @@ if 'initialized' not in st.session_state:
         'temps_stationnement': 95
     }
     
+    # Caractéristiques parc vélo 2025
+    st.session_state.parc_velo_2025 = {
+        'part_elec': 15,  # % vélos électriques
+        'part_classique': 85,
+        'emission_elec': 22,  # gCO2/km ACV (fabrication + électricité)
+        'emission_classique': 5  # gCO2/km ACV
+    }
+    
     # Facteurs d'émission ACV (autres modes)
     # Sources ADEME Base Carbone 2024 + impactCO2
     st.session_state.emissions = {
         'voiture_electrique': 103,  # gCO2/km ACV
         'bus': 127,
         'train': 5.1,
-        'velo': 5,
+        'velo_elec': 22,
+        'velo_classique': 5,
         'avion': 225,  # impactCO2.fr
         'marche': 0
     }
@@ -69,15 +87,18 @@ if 'initialized' not in st.session_state:
         'taux_remplissage': 1.3,
         'part_ve': 3,
         'part_thermique': 97,
+        'part_velo_elec': 15,
+        'part_velo_classique': 85,
         'reduction_poids': 0
     }
 
 # ==================== FONCTIONS ====================
 
-def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, reduction_poids=0):
+def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_velo_config, reduction_poids=0):
     """
     Calcule CO2 total du territoire en tenant compte :
     - du mix voiture thermique/électrique
+    - du mix vélo électrique/classique
     - du taux de remplissage
     - de la réduction de poids (tous véhicules)
     
@@ -89,9 +110,9 @@ def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, reduct
     for mode in km_territoire:
         if mode == 'voiture':
             # Effet allègement : -10% poids = -7% consommation (tous véhicules)
-            facteur_allègement = 1 - (reduction_poids * 0.7 / 100)
-            emission_thermique_ajustee = emissions_parc['emission_thermique'] * facteur_allègement
-            emission_electrique_ajustee = emissions_parc['voiture_electrique'] * facteur_allègement
+            facteur_allegement = 1 - (reduction_poids * 0.7 / 100)
+            emission_thermique_ajustee = emissions_parc['emission_thermique'] * facteur_allegement
+            emission_electrique_ajustee = emissions_parc['voiture_electrique'] * facteur_allegement
             
             # Mix thermique/électrique
             emission_voiture = (
@@ -104,7 +125,16 @@ def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, reduct
             
             # km en millions → CO2 en tonnes
             co2_mode = km_territoire[mode] * 1e6 * emission_par_personne / 1000 / 1000  # tonnes CO2
-        elif mode in ['bus', 'train', 'avion', 'velo', 'marche']:
+        
+        elif mode == 'velo':
+            # Mix vélo électrique/classique
+            emission_velo = (
+                parc_velo_config['part_elec'] / 100 * emissions_parc['velo_elec'] +
+                parc_velo_config['part_classique'] / 100 * emissions_parc['velo_classique']
+            )
+            co2_mode = km_territoire[mode] * 1e6 * emission_velo / 1000 / 1000  # tonnes CO2
+        
+        elif mode in ['bus', 'train', 'avion', 'marche']:
             co2_mode = km_territoire[mode] * 1e6 * emissions_parc[mode] / 1000 / 1000  # tonnes CO2
         else:
             co2_mode = 0
@@ -164,6 +194,11 @@ def calculer_2050():
         'taux_occupation': st.session_state.scenario['taux_remplissage']
     }
     
+    parc_velo_2050 = {
+        'part_elec': st.session_state.scenario['part_velo_elec'],
+        'part_classique': st.session_state.scenario['part_velo_classique']
+    }
+    
     emissions_2050 = st.session_state.emissions.copy()
     emissions_2050['emission_thermique'] = st.session_state.parc_2025['emission_thermique']
     
@@ -172,6 +207,7 @@ def calculer_2050():
         st.session_state.km_2025_territoire,
         {**st.session_state.emissions, 'emission_thermique': st.session_state.parc_2025['emission_thermique']},
         st.session_state.parc_2025,
+        st.session_state.parc_velo_2025,
         reduction_poids=0
     )
     
@@ -179,6 +215,7 @@ def calculer_2050():
         km_2050_territoire,
         emissions_2050,
         parc_2050,
+        parc_velo_2050,
         reduction_poids=st.session_state.scenario['reduction_poids']
     )
     
@@ -208,7 +245,7 @@ st.markdown("**Outil pédagogique** • Territoire : Communauté Pays Basque (35
 
 # ==================== ÉTAPE 1 : DIAGNOSTIC 2025 ====================
 
-st.header("📍 Étape 1 : Diagnostic 2025 - Territoire Pays Basque")
+st.header("🔍 Étape 1 : Diagnostic 2025 - Territoire Pays Basque")
 st.info("**Sources** : EMD Pays Basque, PCAET, ENTD 2019")
 
 # Saisie des données territoire
@@ -221,7 +258,7 @@ with header_cols[0]:
 with header_cols[1]:
     st.markdown("**Mkm/an (territoire)**")
 with header_cols[2]:
-    st.markdown("**Dépl./jour/hab**")
+    st.markdown("**Dépl./an/hab**")
 
 # Voiture
 cols = st.columns([2, 2, 2])
@@ -234,7 +271,7 @@ with cols[1]:
     )
 with cols[2]:
     st.session_state.nb_depl_hab['voiture'] = st.number_input(
-        "nb_v", 0.0, 5.0, st.session_state.nb_depl_hab['voiture'], 0.1,
+        "nb_v", 0.0, 2000.0, st.session_state.nb_depl_hab['voiture'], 10.0,
         format="%.1f", label_visibility="collapsed", key="input_nb_v"
     )
 
@@ -249,7 +286,7 @@ with cols[1]:
     )
 with cols[2]:
     st.session_state.nb_depl_hab['bus'] = st.number_input(
-        "nb_b", 0.0, 3.0, st.session_state.nb_depl_hab['bus'], 0.1,
+        "nb_b", 0.0, 1000.0, st.session_state.nb_depl_hab['bus'], 10.0,
         format="%.1f", label_visibility="collapsed", key="input_nb_b"
     )
 
@@ -264,8 +301,8 @@ with cols[1]:
     )
 with cols[2]:
     st.session_state.nb_depl_hab['train'] = st.number_input(
-        "nb_t", 0.0, 1.0, st.session_state.nb_depl_hab['train'], 0.05,
-        format="%.2f", label_visibility="collapsed", key="input_nb_t"
+        "nb_t", 0.0, 500.0, st.session_state.nb_depl_hab['train'], 5.0,
+        format="%.1f", label_visibility="collapsed", key="input_nb_t"
     )
 
 # Vélo
@@ -279,7 +316,7 @@ with cols[1]:
     )
 with cols[2]:
     st.session_state.nb_depl_hab['velo'] = st.number_input(
-        "nb_ve", 0.0, 3.0, st.session_state.nb_depl_hab['velo'], 0.1,
+        "nb_ve", 0.0, 1000.0, st.session_state.nb_depl_hab['velo'], 10.0,
         format="%.1f", label_visibility="collapsed", key="input_nb_ve"
     )
 
@@ -294,8 +331,8 @@ with cols[1]:
     )
 with cols[2]:
     st.session_state.nb_depl_hab['avion'] = st.number_input(
-        "nb_a", 0.0, 0.5, st.session_state.nb_depl_hab['avion'], 0.01,
-        format="%.3f", label_visibility="collapsed", key="input_nb_a"
+        "nb_a", 0.0, 100.0, st.session_state.nb_depl_hab['avion'], 1.0,
+        format="%.1f", label_visibility="collapsed", key="input_nb_a"
     )
 
 # Marche
@@ -309,7 +346,7 @@ with cols[1]:
     )
 with cols[2]:
     st.session_state.nb_depl_hab['marche'] = st.number_input(
-        "nb_m", 0.0, 5.0, st.session_state.nb_depl_hab['marche'], 0.1,
+        "nb_m", 0.0, 2000.0, st.session_state.nb_depl_hab['marche'], 10.0,
         format="%.1f", label_visibility="collapsed", key="input_nb_m"
     )
 
@@ -357,6 +394,36 @@ with col3:
 
 st.divider()
 
+# Caractéristiques parc vélo 2025
+st.subheader("🚴 Caractéristiques parc vélo 2025")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.session_state.parc_velo_2025['part_elec'] = st.number_input(
+        "Part vélos électriques (%)",
+        min_value=0, max_value=100, value=st.session_state.parc_velo_2025['part_elec'],
+        step=1, help="Parc circulant vélos électriques"
+    )
+    st.session_state.parc_velo_2025['part_classique'] = 100 - st.session_state.parc_velo_2025['part_elec']
+    st.caption(f"Part vélos classiques : {st.session_state.parc_velo_2025['part_classique']}%")
+
+with col2:
+    st.session_state.emissions['velo_elec'] = st.number_input(
+        "Émission vélo électrique (gCO₂/km ACV)",
+        min_value=0, max_value=50, value=st.session_state.emissions['velo_elec'],
+        step=1, help="Fabrication + électricité"
+    )
+
+with col3:
+    st.session_state.emissions['velo_classique'] = st.number_input(
+        "Émission vélo classique (gCO₂/km ACV)",
+        min_value=0, max_value=20, value=st.session_state.emissions['velo_classique'],
+        step=1, help="Fabrication uniquement"
+    )
+
+st.divider()
+
 # Facteurs émission autres modes
 with st.expander("⚙️ Facteurs d'émission autres modes (gCO₂/km ACV)"):
     col1, col2, col3 = st.columns(3)
@@ -364,10 +431,9 @@ with st.expander("⚙️ Facteurs d'émission autres modes (gCO₂/km ACV)"):
         st.session_state.emissions['bus'] = st.number_input("Bus", 0, 300, st.session_state.emissions['bus'], 10)
         st.session_state.emissions['train'] = st.number_input("Train", 0.0, 50.0, st.session_state.emissions['train'], 0.5)
     with col2:
-        st.session_state.emissions['velo'] = st.number_input("Vélo", 0, 20, st.session_state.emissions['velo'], 1)
         st.session_state.emissions['avion'] = st.number_input("Avion", 0, 500, st.session_state.emissions['avion'], 10, help="impactCO2.fr : 225g")
-    with col3:
         st.session_state.emissions['marche'] = st.number_input("Marche", 0, 10, st.session_state.emissions['marche'], 1)
+    with col3:
         st.caption("**Sources** : [Base Carbone](https://base-empreinte.ademe.fr/), [impactCO2](https://impactco2.fr)")
 
 st.divider()
@@ -392,6 +458,7 @@ bilan_2025 = calculer_bilan_territoire(
     st.session_state.km_2025_territoire,
     {**st.session_state.emissions, 'emission_thermique': st.session_state.parc_2025['emission_thermique']},
     st.session_state.parc_2025,
+    st.session_state.parc_velo_2025,
     reduction_poids=0
 )
 parts_2025 = calculer_parts_modales(st.session_state.km_2025_territoire)
@@ -400,6 +467,9 @@ parts_2025 = calculer_parts_modales(st.session_state.km_2025_territoire)
 co2_par_hab = (bilan_2025['co2_total_territoire'] * 1000) / POPULATION_PB  # kg/hab/an
 km_par_hab = (bilan_2025['km_total_territoire'] * 1e6) / POPULATION_PB / 52  # km/hab/semaine
 depl_par_hab_jour = sum(st.session_state.nb_depl_hab.values())
+
+# Calcul équivalent Terre-Soleil
+nb_terre_soleil = (bilan_2025['km_total_territoire'] * 1e6) / DISTANCE_TERRE_SOLEIL
 
 st.divider()
 
@@ -411,9 +481,11 @@ st.header("📊 Bilan 2025")
 st.subheader("🌍 Échelle territoire (350 000 habitants)")
 col1, col2 = st.columns(2)
 with col1:
-    st.metric("Km totaux/an", f"{bilan_2025['km_total_territoire']:.0f} Mkm")
+    st.metric("Km totaux/an", f"{format_nombre(bilan_2025['km_total_territoire'])} Mkm")
+    st.caption(f"Soit {nb_terre_soleil:.1f} fois la distance Terre-Soleil")
 with col2:
-    st.metric("CO₂ total/an", f"{bilan_2025['co2_total_territoire']:.0f} tonnes", help=f"{bilan_2025['co2_total_territoire']/1000:.1f} kt CO2")
+    st.metric("CO₂ total/an", f"{format_nombre(bilan_2025['co2_total_territoire'])} tonnes", 
+              help=f"{bilan_2025['co2_total_territoire']/1000:.1f} kt CO2")
 
 st.divider()
 
@@ -421,11 +493,11 @@ st.divider()
 st.subheader("👤 Échelle habitant (moyennes)")
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("CO₂/habitant/an", f"{co2_par_hab:.0f} kg")
+    st.metric("CO₂/habitant/an", f"{format_nombre(co2_par_hab)} kg")
 with col2:
-    st.metric("Km/habitant/semaine", f"{km_par_hab:.0f} km")
+    st.metric("Km/habitant/semaine", f"{format_nombre(km_par_hab)} km")
 with col3:
-    st.metric("Déplacements/habitant/jour", f"{depl_par_hab_jour:.1f}")
+    st.metric("Déplacements/habitant/an", f"{format_nombre(depl_par_hab_jour)}")
 
 # Graphiques par habitant
 col1, col2 = st.columns(2)
@@ -497,7 +569,30 @@ st.header("🎯 Étape 2 : Construire le scénario 2050")
 st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
 
 # Leviers avec saisie directe + boutons
-with st.expander("🔧 **LEVIER 1 : Sobriété** - Réduire les km parcourus", expanded=True):
+with st.expander("🔧 **LEVIER 1 : Électrification** - Décarboner le parc automobile et vélo", expanded=False):
+    st.markdown("**Objectif :** Remplacer véhicules thermiques par électriques")
+    
+    st.markdown("##### 🚗 Parc automobile")
+    st.session_state.scenario['part_ve'] = st.slider(
+        "Part véhicules électriques (%)",
+        min_value=0, max_value=100, value=st.session_state.scenario['part_ve'],
+        step=5, key="lever_part_ve"
+    )
+    st.session_state.scenario['part_thermique'] = 100 - st.session_state.scenario['part_ve']
+    st.info(f"Part thermique : **{st.session_state.scenario['part_thermique']}%**")
+    
+    st.divider()
+    
+    st.markdown("##### 🚴 Parc vélo")
+    st.session_state.scenario['part_velo_elec'] = st.slider(
+        "Part vélos électriques (%)",
+        min_value=0, max_value=100, value=st.session_state.scenario['part_velo_elec'],
+        step=5, key="lever_part_velo_elec"
+    )
+    st.session_state.scenario['part_velo_classique'] = 100 - st.session_state.scenario['part_velo_elec']
+    st.info(f"Part vélos classiques : **{st.session_state.scenario['part_velo_classique']}%**")
+
+with st.expander("🔧 **LEVIER 2 : Sobriété** - Réduire les km parcourus", expanded=False):
     st.markdown("**Objectif :** Diminuer le besoin de déplacement")
     
     st.session_state.scenario['reduction_km'] = st.slider(
@@ -510,83 +605,41 @@ with st.expander("🔧 **LEVIER 1 : Sobriété** - Réduire les km parcourus", e
     km_total_2050_prevision = km_total_2025 * (1 + st.session_state.scenario['reduction_km'] / 100)
     
     if st.session_state.scenario['reduction_km'] < 0:
-        st.success(f"✅ Réduction : {km_total_2025:.0f} Mkm → {km_total_2050_prevision:.0f} Mkm ({abs(st.session_state.scenario['reduction_km'])}%)")
+        st.success(f"✅ Réduction : {format_nombre(km_total_2025)} Mkm → {format_nombre(km_total_2050_prevision)} Mkm ({abs(st.session_state.scenario['reduction_km'])}%)")
     elif st.session_state.scenario['reduction_km'] > 0:
-        st.warning(f"⚠️ Augmentation : {km_total_2025:.0f} Mkm → {km_total_2050_prevision:.0f} Mkm (+{st.session_state.scenario['reduction_km']}%)")
+        st.warning(f"⚠️ Augmentation : {format_nombre(km_total_2025)} Mkm → {format_nombre(km_total_2050_prevision)} Mkm (+{st.session_state.scenario['reduction_km']}%)")
     else:
-        st.info(f"➡️ Stabilité : {km_total_2025:.0f} Mkm")
+        st.info(f"➡️ Stabilité : {format_nombre(km_total_2025)} Mkm")
 
-with st.expander("🔧 **LEVIER 2 : Report modal** - Transférer vers modes décarbonés", expanded=True):
+with st.expander("🔧 **LEVIER 3 : Report modal** - Transférer vers modes décarbonés", expanded=False):
     st.markdown("**Objectif :** Transférer des km vers des modes moins émetteurs")
     st.caption("Valeurs = % des km du mode d'origine transférés (appliqué APRÈS sobriété)")
     
     st.markdown("##### 🚗 Report depuis la voiture")
     
     # Report vélo
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("🚴 **Voiture → Vélo (%)**")
-    with col2:
-        new_val = st.number_input(
-            "report_velo", 0, 50, st.session_state.scenario['report_velo'], 1,
-            label_visibility="collapsed", key="input_report_velo"
-        )
-        if new_val != st.session_state.scenario['report_velo']:
-            st.session_state.scenario['report_velo'] = new_val
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="velo_moins"):
-                st.session_state.scenario['report_velo'] = max(0, st.session_state.scenario['report_velo'] - 1)
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="velo_plus"):
-                st.session_state.scenario['report_velo'] = min(50, st.session_state.scenario['report_velo'] + 1)
-                st.rerun()
+    st.markdown("🚴 **Voiture → Vélo (%)**")
+    st.session_state.scenario['report_velo'] = st.slider(
+        "Report vélo",
+        min_value=0, max_value=50, value=st.session_state.scenario['report_velo'],
+        step=1, label_visibility="collapsed", key="slider_report_velo"
+    )
     
     # Report bus
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("🚌 **Voiture → Bus/TC (%)**")
-    with col2:
-        new_val = st.number_input(
-            "report_bus", 0, 50, st.session_state.scenario['report_bus'], 1,
-            label_visibility="collapsed", key="input_report_bus"
-        )
-        if new_val != st.session_state.scenario['report_bus']:
-            st.session_state.scenario['report_bus'] = new_val
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="bus_moins"):
-                st.session_state.scenario['report_bus'] = max(0, st.session_state.scenario['report_bus'] - 1)
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="bus_plus"):
-                st.session_state.scenario['report_bus'] = min(50, st.session_state.scenario['report_bus'] + 1)
-                st.rerun()
+    st.markdown("🚌 **Voiture → Bus/TC (%)**")
+    st.session_state.scenario['report_bus'] = st.slider(
+        "Report bus",
+        min_value=0, max_value=50, value=st.session_state.scenario['report_bus'],
+        step=1, label_visibility="collapsed", key="slider_report_bus"
+    )
     
     # Report train (depuis voiture)
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("🚆 **Voiture → Train (%)**")
-    with col2:
-        new_val = st.number_input(
-            "report_train", 0, 50, st.session_state.scenario['report_train'], 1,
-            label_visibility="collapsed", key="input_report_train"
-        )
-        if new_val != st.session_state.scenario['report_train']:
-            st.session_state.scenario['report_train'] = new_val
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="train_moins"):
-                st.session_state.scenario['report_train'] = max(0, st.session_state.scenario['report_train'] - 1)
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="train_plus"):
-                st.session_state.scenario['report_train'] = min(50, st.session_state.scenario['report_train'] + 1)
-                st.rerun()
+    st.markdown("🚆 **Voiture → Train (%)**")
+    st.session_state.scenario['report_train'] = st.slider(
+        "Report train",
+        min_value=0, max_value=50, value=st.session_state.scenario['report_train'],
+        step=1, label_visibility="collapsed", key="slider_report_train"
+    )
     
     report_total_voiture = (st.session_state.scenario['report_velo'] + 
                             st.session_state.scenario['report_bus'] + 
@@ -597,52 +650,23 @@ with st.expander("🔧 **LEVIER 2 : Report modal** - Transférer vers modes déc
     st.markdown("##### ✈️ Report depuis l'avion")
     
     # Report train (depuis avion)
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("🚆 **Avion → Train (%)**")
-    with col2:
-        new_val = st.number_input(
-            "report_avion", 0, 100, st.session_state.scenario['report_train_avion'], 1,
-            label_visibility="collapsed", key="input_report_avion"
-        )
-        if new_val != st.session_state.scenario['report_train_avion']:
-            st.session_state.scenario['report_train_avion'] = new_val
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="avion_moins"):
-                st.session_state.scenario['report_train_avion'] = max(0, st.session_state.scenario['report_train_avion'] - 1)
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="avion_plus"):
-                st.session_state.scenario['report_train_avion'] = min(100, st.session_state.scenario['report_train_avion'] + 1)
-                st.rerun()
+    st.markdown("🚆 **Avion → Train (%)**")
+    st.session_state.scenario['report_train_avion'] = st.slider(
+        "Report avion",
+        min_value=0, max_value=100, value=st.session_state.scenario['report_train_avion'],
+        step=1, label_visibility="collapsed", key="slider_report_avion"
+    )
     
     st.info(f"**{st.session_state.scenario['report_train_avion']}%** des km avion transférés vers le train")
 
-with st.expander("🔧 **LEVIER 3 : Taux de remplissage** - Augmenter l'occupation des véhicules", expanded=True):
+with st.expander("🔧 **LEVIER 4 : Taux de remplissage** - Augmenter l'occupation des véhicules", expanded=False):
     st.markdown("**Objectif :** Plus de personnes par véhicule")
     
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("**Taux d'occupation (pers/véhicule)**")
-    with col2:
-        new_val = st.number_input(
-            "taux_remp", 1.0, 3.0, st.session_state.scenario['taux_remplissage'], 0.1,
-            format="%.1f", label_visibility="collapsed", key="input_taux_remp"
-        )
-        if new_val != st.session_state.scenario['taux_remplissage']:
-            st.session_state.scenario['taux_remplissage'] = round(new_val, 1)
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="remplissage_moins"):
-                st.session_state.scenario['taux_remplissage'] = max(1.0, round(st.session_state.scenario['taux_remplissage'] - 0.1, 1))
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="remplissage_plus"):
-                st.session_state.scenario['taux_remplissage'] = min(3.0, round(st.session_state.scenario['taux_remplissage'] + 0.1, 1))
-                st.rerun()
+    st.session_state.scenario['taux_remplissage'] = st.slider(
+        "Taux d'occupation (pers/véhicule)",
+        min_value=1.0, max_value=3.0, value=st.session_state.scenario['taux_remplissage'],
+        step=0.1, format="%.1f", key="slider_taux_remp"
+    )
     
     gain_remplissage = ((st.session_state.scenario['taux_remplissage'] - st.session_state.parc_2025['taux_occupation']) / 
                         st.session_state.parc_2025['taux_occupation']) * 100
@@ -654,59 +678,15 @@ with st.expander("🔧 **LEVIER 3 : Taux de remplissage** - Augmenter l'occupati
     else:
         st.info("➡️ Identique à 2025")
 
-with st.expander("🔧 **LEVIER 4 : Électrification** - Décarboner le parc automobile", expanded=True):
-    st.markdown("**Objectif :** Remplacer véhicules thermiques par électriques")
-    
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("**Part véhicules électriques (%)**")
-    with col2:
-        new_val = st.number_input(
-            "part_ve", 0, 100, st.session_state.scenario['part_ve'], 5,
-            label_visibility="collapsed", key="input_part_ve"
-        )
-        if new_val != st.session_state.scenario['part_ve']:
-            st.session_state.scenario['part_ve'] = new_val
-            st.session_state.scenario['part_thermique'] = 100 - new_val
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="ve_moins"):
-                st.session_state.scenario['part_ve'] = max(0, st.session_state.scenario['part_ve'] - 5)
-                st.session_state.scenario['part_thermique'] = 100 - st.session_state.scenario['part_ve']
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="ve_plus"):
-                st.session_state.scenario['part_ve'] = min(100, st.session_state.scenario['part_ve'] + 5)
-                st.session_state.scenario['part_thermique'] = 100 - st.session_state.scenario['part_ve']
-                st.rerun()
-    
-    st.info(f"Part thermique : **{st.session_state.scenario['part_thermique']}%**")
-
-with st.expander("🔧 **LEVIER 5 : Allègement** - Réduire le poids des véhicules", expanded=True):
+with st.expander("🔧 **LEVIER 5 : Allègement** - Réduire le poids des véhicules", expanded=False):
     st.markdown("**Objectif :** Véhicules plus légers, moins consommateurs")
     st.caption("Impact : -10% poids = -7% consommation (thermique ET électrique)")
     
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        st.markdown("**Réduction poids (%)**")
-    with col2:
-        new_val = st.number_input(
-            "red_poids", 0, 30, st.session_state.scenario['reduction_poids'], 5,
-            label_visibility="collapsed", key="input_red_poids"
-        )
-        if new_val != st.session_state.scenario['reduction_poids']:
-            st.session_state.scenario['reduction_poids'] = new_val
-    with col3:
-        col_moins, col_plus = st.columns(2)
-        with col_moins:
-            if st.button("➖", key="poids_moins"):
-                st.session_state.scenario['reduction_poids'] = max(0, st.session_state.scenario['reduction_poids'] - 5)
-                st.rerun()
-        with col_plus:
-            if st.button("➕", key="poids_plus"):
-                st.session_state.scenario['reduction_poids'] = min(30, st.session_state.scenario['reduction_poids'] + 5)
-                st.rerun()
+    st.session_state.scenario['reduction_poids'] = st.slider(
+        "Réduction poids (%)",
+        min_value=0, max_value=30, value=st.session_state.scenario['reduction_poids'],
+        step=5, key="slider_red_poids"
+    )
     
     if st.session_state.scenario['reduction_poids'] > 0:
         reduction_conso = st.session_state.scenario['reduction_poids'] * 0.7
@@ -731,6 +711,8 @@ with col_btn1:
             'taux_remplissage': st.session_state.parc_2025['taux_occupation'],
             'part_ve': st.session_state.parc_2025['part_ve'],
             'part_thermique': st.session_state.parc_2025['part_thermique'],
+            'part_velo_elec': st.session_state.parc_velo_2025['part_elec'],
+            'part_velo_classique': st.session_state.parc_velo_2025['part_classique'],
             'reduction_poids': 0
         }
         st.session_state.scenario_2050_valide = False
@@ -761,6 +743,11 @@ resultats = calculer_2050()
 # Calculs par habitant 2050
 co2_par_hab_2050 = (resultats['bilan_2050']['co2_total_territoire'] * 1000) / POPULATION_PB
 km_par_hab_2050 = (resultats['bilan_2050']['km_total_territoire'] * 1e6) / POPULATION_PB / 52
+km_par_hab_an_2050 = (resultats['bilan_2050']['km_total_territoire'] * 1e6) / POPULATION_PB
+km_par_hab_an_2025 = (resultats['bilan_2025']['km_total_territoire'] * 1e6) / POPULATION_PB
+
+# Calcul équivalent Terre-Soleil 2050
+nb_terre_soleil_2050 = (resultats['bilan_2050']['km_total_territoire'] * 1e6) / DISTANCE_TERRE_SOLEIL
 
 # Métriques principales
 col1, col2, col3 = st.columns(3)
@@ -769,11 +756,11 @@ with col1:
     delta_co2_territoire = resultats['bilan_2050']['co2_total_territoire'] - resultats['bilan_2025']['co2_total_territoire']
     st.metric(
         "🌍 CO₂ territoire 2050",
-        f"{resultats['bilan_2050']['co2_total_territoire']:.0f} tonnes/an",
-        delta=f"{delta_co2_territoire:.0f} t/an",
+        f"{format_nombre(resultats['bilan_2050']['co2_total_territoire'])} tonnes/an",
+        delta=f"{format_nombre(delta_co2_territoire)} t/an",
         delta_color="inverse"
     )
-    st.caption(f"Par habitant : {co2_par_hab_2050:.0f} kg/an")
+    st.caption(f"Par habitant : {format_nombre(co2_par_hab_2050)} kg/an")
 
 with col2:
     st.metric(
@@ -787,6 +774,29 @@ with col3:
         st.success("✅ **Objectif SNBC atteint !**\n\n(≥ 80% de réduction)")
     else:
         st.error(f"❌ **Objectif non atteint**\n\nBesoin : -80%\nActuel : -{resultats['reduction_pct']:.1f}%")
+
+st.divider()
+
+# Métriques km territoire
+st.subheader("🛣️ Kilomètres parcourus")
+col1, col2 = st.columns(2)
+with col1:
+    delta_km = resultats['bilan_2050']['km_total_territoire'] - resultats['bilan_2025']['km_total_territoire']
+    st.metric(
+        "Km totaux territoire 2050",
+        f"{format_nombre(resultats['bilan_2050']['km_total_territoire'])} Mkm/an",
+        delta=f"{format_nombre(delta_km)} Mkm/an",
+        delta_color="inverse"
+    )
+    st.caption(f"Soit {nb_terre_soleil_2050:.1f} fois la distance Terre-Soleil")
+    st.caption(f"Par habitant : {format_nombre(km_par_hab_an_2050)} km/an")
+with col2:
+    st.metric(
+        "Km totaux territoire 2025",
+        f"{format_nombre(resultats['bilan_2025']['km_total_territoire'])} Mkm/an"
+    )
+    st.caption(f"Soit {nb_terre_soleil:.1f} fois la distance Terre-Soleil")
+    st.caption(f"Par habitant : {format_nombre(km_par_hab_an_2025)} km/an")
 
 st.divider()
 
@@ -858,12 +868,12 @@ for mode in ['voiture', 'bus', 'train', 'velo', 'avion', 'marche']:
     
     data_comparaison.append({
         'Mode': f"{emoji} {mode.capitalize()}",
-        'Mkm/an 2025': f"{km_2025_territoire:.0f}",
-        'Mkm/an 2050': f"{km_2050_territoire:.0f}",
+        'Mkm/an 2025': f"{format_nombre(km_2025_territoire)}",
+        'Mkm/an 2050': f"{format_nombre(km_2050_territoire)}",
         'Part 2025 (%)': f"{parts_2025[mode]:.1f}%",
         'Part 2050 (%)': f"{resultats['parts_2050'][mode]:.1f}%",
-        'CO₂ 2025 (kg/hab/an)': f"{emissions_hab_an[mode]:.0f}",
-        'CO₂ 2050 (kg/hab/an)': f"{emissions_2050_hab[mode]:.0f}"
+        'CO₂ 2025 (kg/hab/an)': f"{format_nombre(emissions_hab_an[mode])}",
+        'CO₂ 2050 (kg/hab/an)': f"{format_nombre(emissions_2050_hab[mode])}"
     })
 
 df_comparaison = pd.DataFrame(data_comparaison)
@@ -875,24 +885,27 @@ with st.expander("🔍 Vérification des calculs"):
     **Ordre appliqué : 1. Sobriété → 2. Report modal**
     
     **1. Sobriété ({st.session_state.scenario['reduction_km']:+}%) :**
-    - Km territoriaux 2025 : {sum(st.session_state.km_2025_territoire.values()):.0f} Mkm
+    - Km territoriaux 2025 : {format_nombre(sum(st.session_state.km_2025_territoire.values()))} Mkm
     - Facteur sobriété : {1 + st.session_state.scenario['reduction_km']/100:.3f}
-    - Km après sobriété : {sum(st.session_state.km_2025_territoire.values()) * (1 + st.session_state.scenario['reduction_km']/100):.0f} Mkm
+    - Km après sobriété : {format_nombre(sum(st.session_state.km_2025_territoire.values()) * (1 + st.session_state.scenario['reduction_km']/100))} Mkm
     
     **2. Report modal (appliqué sur km après sobriété) :**
-    - Voiture après sobriété : {st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100):.0f} Mkm
-    - Transfert vélo : {st.session_state.scenario['report_velo']}% = {st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100) * st.session_state.scenario['report_velo']/100:.1f} Mkm
-    - Transfert bus : {st.session_state.scenario['report_bus']}% = {st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100) * st.session_state.scenario['report_bus']/100:.1f} Mkm
-    - Transfert train : {st.session_state.scenario['report_train']}% = {st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100) * st.session_state.scenario['report_train']/100:.1f} Mkm
+    - Voiture après sobriété : {format_nombre(st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100))} Mkm
+    - Transfert vélo : {st.session_state.scenario['report_velo']}% = {format_nombre(st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100) * st.session_state.scenario['report_velo']/100, 1)} Mkm
+    - Transfert bus : {st.session_state.scenario['report_bus']}% = {format_nombre(st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100) * st.session_state.scenario['report_bus']/100, 1)} Mkm
+    - Transfert train : {st.session_state.scenario['report_train']}% = {format_nombre(st.session_state.km_2025_territoire['voiture'] * (1 + st.session_state.scenario['reduction_km']/100) * st.session_state.scenario['report_train']/100, 1)} Mkm
     
     **3. Km finaux 2050 :**
-    - Voiture : {resultats['km_2050_territoire']['voiture']:.0f} Mkm
-    - Total : {resultats['bilan_2050']['km_total_territoire']:.0f} Mkm
+    - Voiture : {format_nombre(resultats['km_2050_territoire']['voiture'])} Mkm
+    - Total : {format_nombre(resultats['bilan_2050']['km_total_territoire'])} Mkm
     
     **4. Émissions voiture 2050 :**
     - Mix : {st.session_state.scenario['part_thermique']}% thermique + {st.session_state.scenario['part_ve']}% électrique
     - Allègement : -{st.session_state.scenario['reduction_poids']}%
     - Taux occupation : {st.session_state.scenario['taux_remplissage']:.1f} pers/véh
+    
+    **5. Émissions vélo 2050 :**
+    - Mix : {st.session_state.scenario['part_velo_classique']}% classique + {st.session_state.scenario['part_velo_elec']}% électrique
     
     ✅ Pas de double application de la sobriété
     """)
@@ -913,11 +926,12 @@ with st.expander("❓ Objectif atteint ?", expanded=not resultats['objectif_atte
 with st.expander("❓ Rôle de chaque levier"):
     st.markdown(f"""
     **Votre scénario :**
+    - Électrification voitures : {st.session_state.scenario['part_ve']}%
+    - Électrification vélos : {st.session_state.scenario['part_velo_elec']}%
     - Sobriété : {st.session_state.scenario['reduction_km']:+}%
     - Report modal voiture : {st.session_state.scenario['report_velo'] + st.session_state.scenario['report_bus'] + st.session_state.scenario['report_train']}%
     - Report modal avion : {st.session_state.scenario['report_train_avion']}%
     - Taux remplissage : {st.session_state.scenario['taux_remplissage']:.1f} pers/véh
-    - Électrification : {st.session_state.scenario['part_ve']}%
     - Allègement : -{st.session_state.scenario['reduction_poids']}%
     
     💡 Testez en n'activant qu'un seul levier à la fois pour mesurer son impact.
@@ -932,7 +946,7 @@ st.info("""
 **🎯 Enseignements :**
 
 1. **Approche systémique** : Combiner TOUS les leviers
-2. **Ordre des actions** : Sobriété → Report modal → Décarbonation
+2. **Ordre des actions** : Électrification + Sobriété → Report modal → Optimisation
 3. **Échelle territoire** : 350 000 habitants = leviers collectifs nécessaires
 4. **Acceptabilité sociale** : Changements comportementaux = enjeu majeur
 5. **Temporalité** : 2050 = 25 ans. Agir MAINTENANT.
@@ -944,33 +958,35 @@ st.divider()
 st.subheader("💾 Exporter le scénario")
 
 resume = f"""
-═══════════════════════════════════════════════════
+╔═══════════════════════════════════════════════════
 SCÉNARIO MOBILITÉ PAYS BASQUE 2050
-═══════════════════════════════════════════════════
+╚═══════════════════════════════════════════════════
 Territoire : Communauté Pays Basque (350 000 habitants)
 
 BILAN 2025 :
-- Km totaux : {bilan_2025['km_total_territoire']:.0f} Mkm/an
-- CO₂ total : {bilan_2025['co2_total_territoire']:.0f} tonnes/an
-- CO₂/hab : {co2_par_hab:.0f} kg/an
+- Km totaux : {format_nombre(bilan_2025['km_total_territoire'])} Mkm/an
+- CO₂ total : {format_nombre(bilan_2025['co2_total_territoire'])} tonnes/an
+- CO₂/hab : {format_nombre(co2_par_hab)} kg/an
 
 SCÉNARIO 2050 :
+- Électrification voitures : {st.session_state.scenario['part_ve']}%
+- Électrification vélos : {st.session_state.scenario['part_velo_elec']}%
 - Sobriété : {st.session_state.scenario['reduction_km']:+}%
 - Report modal : {st.session_state.scenario['report_velo'] + st.session_state.scenario['report_bus'] + st.session_state.scenario['report_train']}% (voiture)
-- Électrification : {st.session_state.scenario['part_ve']}%
 - Taux remplissage : {st.session_state.scenario['taux_remplissage']:.1f}
 - Allègement : -{st.session_state.scenario['reduction_poids']}%
 
 RÉSULTATS 2050 :
-- CO₂ total : {resultats['bilan_2050']['co2_total_territoire']:.0f} tonnes/an
-- CO₂/hab : {co2_par_hab_2050:.0f} kg/an
+- CO₂ total : {format_nombre(resultats['bilan_2050']['co2_total_territoire'])} tonnes/an
+- CO₂/hab : {format_nombre(co2_par_hab_2050)} kg/an
+- Km totaux : {format_nombre(resultats['bilan_2050']['km_total_territoire'])} Mkm/an
 - Réduction : {resultats['reduction_pct']:.1f}%
 - Objectif : {"✅ ATTEINT" if resultats['objectif_atteint'] else "❌ NON ATTEINT"}
 
-═══════════════════════════════════════════════════
+╔═══════════════════════════════════════════════════
 Sources : EMD Pays Basque, PCAET, ENTD 2019
          Base Carbone ADEME, impactCO2.fr
-═══════════════════════════════════════════════════
+╚═══════════════════════════════════════════════════
 """
 
 st.download_button(
