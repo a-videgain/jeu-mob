@@ -48,20 +48,13 @@ if 'initialized' not in st.session_state:
         'temps_stationnement': 95
     }
     
-    # Parc vélo 2025 (VAE = vélo à assistance électrique)
-    st.session_state.parc_velo_2025 = {
-        'part_vae': 30,  # % vélos électriques
-        'part_classique': 70
-    }
-    
     # Facteurs d'émission ACV (autres modes)
     # Sources ADEME Base Carbone 2024 + impactCO2
     st.session_state.emissions = {
         'voiture_electrique': 103,  # gCO2/km ACV
         'bus': 127,
         'train': 5.1,
-        'velo_classique': 5,  # Fabrication uniquement
-        'velo_electrique': 7,  # Fabrication + batterie
+        'velo': 5,
         'avion': 225,  # impactCO2.fr
         'marche': 0
     }
@@ -73,32 +66,15 @@ if 'initialized' not in st.session_state:
         'report_bus': 0,
         'report_train': 0,
         'report_train_avion': 0,
+        'taux_remplissage': 1.3,
         'part_ve': 3,
         'part_thermique': 97,
-        'taux_remplissage': 1.3,
-        'reduction_poids': 0,
-        'part_vae': 30  # Part VAE dans scénario 2050
+        'reduction_poids': 0
     }
 
 # ==================== FONCTIONS ====================
 
-def formater_nombre(n):
-    """Formate un nombre avec espaces comme séparateurs de milliers"""
-    if isinstance(n, int):
-        return f"{n:,}".replace(",", " ")
-    else:
-        # Pour les float, séparer partie entière et décimale
-        entier = int(n)
-        decimale = n - entier
-        if decimale > 0.001:
-            return f"{entier:,}".replace(",", " ") + f"{decimale:.1f}"[1:]
-        return f"{entier:,}".replace(",", " ")
-
-def km_vers_terre_soleil(km_mkm):
-    """Convertit des Mkm en nombre de distances Terre-Soleil (150 Mkm)"""
-    return km_mkm / 150
-
-def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_velo, reduction_poids=0):
+def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, reduction_poids=0):
     """
     Calcule CO2 total du territoire en tenant compte :
     - du mix voiture thermique/électrique
@@ -128,14 +104,7 @@ def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_v
             
             # km en millions → CO2 en tonnes
             co2_mode = km_territoire[mode] * 1e6 * emission_par_personne / 1000 / 1000  # tonnes CO2
-        elif mode == 'velo':
-            # Mix vélo classique/électrique
-            emission_velo = (
-                parc_velo['part_classique'] / 100 * emissions_parc['velo_classique'] +
-                parc_velo['part_vae'] / 100 * emissions_parc['velo_electrique']
-            )
-            co2_mode = km_territoire[mode] * 1e6 * emission_velo / 1000 / 1000  # tonnes CO2
-        elif mode in ['bus', 'train', 'avion', 'marche']:
+        elif mode in ['bus', 'train', 'avion', 'velo', 'marche']:
             co2_mode = km_territoire[mode] * 1e6 * emissions_parc[mode] / 1000 / 1000  # tonnes CO2
         else:
             co2_mode = 0
@@ -203,7 +172,6 @@ def calculer_2050():
         st.session_state.km_2025_territoire,
         {**st.session_state.emissions, 'emission_thermique': st.session_state.parc_2025['emission_thermique']},
         st.session_state.parc_2025,
-        st.session_state.parc_velo_2025,
         reduction_poids=0
     )
     
@@ -211,7 +179,6 @@ def calculer_2050():
         km_2050_territoire,
         emissions_2050,
         parc_2050,
-        {'part_classique': 100 - st.session_state.scenario['part_vae'], 'part_vae': st.session_state.scenario['part_vae']},
         reduction_poids=st.session_state.scenario['reduction_poids']
     )
     
@@ -254,7 +221,7 @@ with header_cols[0]:
 with header_cols[1]:
     st.markdown("**Mkm/an (territoire)**")
 with header_cols[2]:
-    st.markdown("**Dépl./an/hab**")
+    st.markdown("**Dépl./jour/hab**")
 
 # Voiture
 cols = st.columns([2, 2, 2])
@@ -266,11 +233,10 @@ with cols[1]:
         label_visibility="collapsed", key="input_km_v", help="Millions de km/an"
     )
 with cols[2]:
-    depl_an = st.number_input(
-        "nb_v", 0.0, 2000.0, st.session_state.nb_depl_hab['voiture'] * 365, 10.0,
-        format="%.0f", label_visibility="collapsed", key="input_nb_v"
+    st.session_state.nb_depl_hab['voiture'] = st.number_input(
+        "nb_v", 0.0, 5.0, st.session_state.nb_depl_hab['voiture'], 0.1,
+        format="%.1f", label_visibility="collapsed", key="input_nb_v"
     )
-    st.session_state.nb_depl_hab['voiture'] = depl_an / 365
 
 # Bus
 cols = st.columns([2, 2, 2])
@@ -282,11 +248,10 @@ with cols[1]:
         label_visibility="collapsed", key="input_km_b"
     )
 with cols[2]:
-    depl_an = st.number_input(
-        "nb_b", 0.0, 1500.0, st.session_state.nb_depl_hab['bus'] * 365, 10.0,
-        format="%.0f", label_visibility="collapsed", key="input_nb_b"
+    st.session_state.nb_depl_hab['bus'] = st.number_input(
+        "nb_b", 0.0, 3.0, st.session_state.nb_depl_hab['bus'], 0.1,
+        format="%.1f", label_visibility="collapsed", key="input_nb_b"
     )
-    st.session_state.nb_depl_hab['bus'] = depl_an / 365
 
 # Train
 cols = st.columns([2, 2, 2])
@@ -298,11 +263,10 @@ with cols[1]:
         label_visibility="collapsed", key="input_km_t"
     )
 with cols[2]:
-    depl_an = st.number_input(
-        "nb_t", 0.0, 500.0, st.session_state.nb_depl_hab['train'] * 365, 5.0,
-        format="%.0f", label_visibility="collapsed", key="input_nb_t"
+    st.session_state.nb_depl_hab['train'] = st.number_input(
+        "nb_t", 0.0, 1.0, st.session_state.nb_depl_hab['train'], 0.05,
+        format="%.2f", label_visibility="collapsed", key="input_nb_t"
     )
-    st.session_state.nb_depl_hab['train'] = depl_an / 365
 
 # Vélo
 cols = st.columns([2, 2, 2])
@@ -314,11 +278,10 @@ with cols[1]:
         label_visibility="collapsed", key="input_km_ve"
     )
 with cols[2]:
-    depl_an = st.number_input(
-        "nb_ve", 0.0, 1500.0, st.session_state.nb_depl_hab['velo'] * 365, 10.0,
-        format="%.0f", label_visibility="collapsed", key="input_nb_ve"
+    st.session_state.nb_depl_hab['velo'] = st.number_input(
+        "nb_ve", 0.0, 3.0, st.session_state.nb_depl_hab['velo'], 0.1,
+        format="%.1f", label_visibility="collapsed", key="input_nb_ve"
     )
-    st.session_state.nb_depl_hab['velo'] = depl_an / 365
 
 # Avion
 cols = st.columns([2, 2, 2])
@@ -330,11 +293,10 @@ with cols[1]:
         label_visibility="collapsed", key="input_km_a"
     )
 with cols[2]:
-    depl_an = st.number_input(
-        "nb_a", 0.0, 200.0, st.session_state.nb_depl_hab['avion'] * 365, 1.0,
-        format="%.0f", label_visibility="collapsed", key="input_nb_a"
+    st.session_state.nb_depl_hab['avion'] = st.number_input(
+        "nb_a", 0.0, 0.5, st.session_state.nb_depl_hab['avion'], 0.01,
+        format="%.3f", label_visibility="collapsed", key="input_nb_a"
     )
-    st.session_state.nb_depl_hab['avion'] = depl_an / 365
 
 # Marche
 cols = st.columns([2, 2, 2])
@@ -346,11 +308,10 @@ with cols[1]:
         label_visibility="collapsed", key="input_km_m"
     )
 with cols[2]:
-    depl_an = st.number_input(
-        "nb_m", 0.0, 2000.0, st.session_state.nb_depl_hab['marche'] * 365, 10.0,
-        format="%.0f", label_visibility="collapsed", key="input_nb_m"
+    st.session_state.nb_depl_hab['marche'] = st.number_input(
+        "nb_m", 0.0, 5.0, st.session_state.nb_depl_hab['marche'], 0.1,
+        format="%.1f", label_visibility="collapsed", key="input_nb_m"
     )
-    st.session_state.nb_depl_hab['marche'] = depl_an / 365
 
 st.divider()
 
