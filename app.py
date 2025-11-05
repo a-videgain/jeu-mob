@@ -624,11 +624,6 @@ st.header("🎯 Étape 2 : Construire le scénario 2050")
 
 st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
 
-st.divider()
-st.header("🎯 Étape 2 : Construire le scénario 2050")
-
-st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
-
 st.info("""
 **💡 Hypothèses du scénario 2050 :**
 
