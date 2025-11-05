@@ -779,6 +779,7 @@ with col2:
 
 with col3:
     if resultats['objectif_atteint']:
+        st.balloons()
         st.success("🏆 **Félicitations !**\n\nVous avez atteint l'objectif SNBC !\n\nMaintenant, à vous de jouer pour expliquer quelles actions mener pour chaque levier.")
     else:
         st.error(f"❌ **Objectif non atteint**\n\nBesoin : -80%\nActuel : -{resultats['reduction_pct']:.1f}%")
@@ -928,7 +929,20 @@ co2_apres_remplissage = calculer_scenario_partiel({
 })
 contrib_remplissage = co2_apres_report - co2_apres_remplissage
 
-contrib_allegement = co2_apres_remplissage - resultats['bilan_2050']['co2_total_territoire']
+co2_apres_allegement = calculer_scenario_partiel({
+    'part_ve': st.session_state.scenario['part_ve'],
+    'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_velo_elec': st.session_state.scenario['part_velo_elec'],
+    'part_velo_classique': st.session_state.scenario['part_velo_classique'],
+    'reduction_km': st.session_state.scenario['reduction_km'],
+    'report_velo': st.session_state.scenario['report_velo'],
+    'report_bus': st.session_state.scenario['report_bus'],
+    'report_train': st.session_state.scenario['report_train'],
+    'report_train_avion': st.session_state.scenario['report_train_avion'],
+    'taux_remplissage': st.session_state.scenario['taux_remplissage'],
+    'reduction_poids': st.session_state.scenario['reduction_poids']
+})
+contrib_allegement = co2_apres_remplissage - co2_apres_allegement
 
 # Créer le graphique en cascade
 fig_cascade = go.Figure(go.Waterfall(
@@ -938,13 +952,13 @@ fig_cascade = go.Figure(go.Waterfall(
     x = ["2025", "Élec. voitures", "Élec. vélos", "Sobriété", "Report modal", "Remplissage", "Allègement", "2050"],
     textposition = "outside",
     text = [f"{co2_2025_base:.0f}", 
-            f"-{contrib_elec_voiture:.0f}",
-            f"-{contrib_elec_velo:.0f}",
-            f"-{contrib_sobriete:.0f}",
-            f"-{contrib_report:.0f}",
-            f"-{contrib_remplissage:.0f}",
-            f"-{contrib_allegement:.0f}",
-            f"{resultats['bilan_2050']['co2_total_territoire']:.0f}"],
+            f"-{contrib_elec_voiture:.0f}" if contrib_elec_voiture > 0 else f"+{abs(contrib_elec_voiture):.0f}",
+            f"-{contrib_elec_velo:.0f}" if contrib_elec_velo > 0 else f"+{abs(contrib_elec_velo):.0f}",
+            f"-{contrib_sobriete:.0f}" if contrib_sobriete > 0 else f"+{abs(contrib_sobriete):.0f}",
+            f"-{contrib_report:.0f}" if contrib_report > 0 else f"+{abs(contrib_report):.0f}",
+            f"-{contrib_remplissage:.0f}" if contrib_remplissage > 0 else f"+{abs(contrib_remplissage):.0f}",
+            f"-{contrib_allegement:.0f}" if contrib_allegement > 0 else f"+{abs(contrib_allegement):.0f}",
+            f"{co2_apres_allegement:.0f}"],
     y = [co2_2025_base, 
          -contrib_elec_voiture,
          -contrib_elec_velo,
@@ -952,7 +966,7 @@ fig_cascade = go.Figure(go.Waterfall(
          -contrib_report,
          -contrib_remplissage,
          -contrib_allegement,
-         resultats['bilan_2050']['co2_total_territoire']],
+         co2_apres_allegement],
     connector = {"line":{"color":"rgb(63, 63, 63)"}},
     decreasing = {"marker":{"color":"#10b981"}},
     increasing = {"marker":{"color":"#ef4444"}},
