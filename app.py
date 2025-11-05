@@ -30,11 +30,11 @@ if 'initialized' not in st.session_state:
     # Sources : EMD Pays Basque, PCAET, ENTD 2019
     # Valeurs en millions de km/an pour tout le territoire
     st.session_state.km_2025_territoire = {
-        'voiture': 1750,  # Mkm/an (estimation basée ENTD ~5000 km/hab/an dont 80% voiture)
-        'bus': 175,       # Mkm/an
-        'train': 70,      # Mkm/an
+        'voiture': 3275,  # Mkm/an
+        'bus': 55,        # Mkm/an
+        'train': 210,     # Mkm/an
         'velo': 140,      # Mkm/an
-        'avion': 210,     # Mkm/an (forte composante touristique)
+        'avion': 900,     # Mkm/an (forte composante touristique)
         'marche': 70      # Mkm/an
     }
     
@@ -65,11 +65,20 @@ if 'initialized' not in st.session_state:
         'emission_classique': 5  # gCO2/km ACV
     }
     
+    # Caractéristiques parc bus 2025
+    st.session_state.parc_bus_2025 = {
+        'part_elec': 5,  # % bus électriques
+        'part_thermique': 95,
+        'emission_thermique': 127,  # gCO2/km ACV (Base Carbone)
+        'emission_electrique': 25   # gCO2/km ACV
+    }
+    
     # Facteurs d'émission ACV (autres modes)
     # Sources ADEME Base Carbone 2024 + impactCO2
     st.session_state.emissions = {
         'voiture_electrique': 103,  # gCO2/km ACV
-        'bus': 127,
+        'bus_thermique': 127,
+        'bus_electrique': 25,
         'train': 5.1,
         'velo_elec': 22,
         'velo_classique': 5,
@@ -89,16 +98,19 @@ if 'initialized' not in st.session_state:
         'part_thermique': 97,
         'part_velo_elec': 15,
         'part_velo_classique': 85,
+        'part_bus_elec': 5,
+        'part_bus_thermique': 95,
         'reduction_poids': 0
     }
 
 # ==================== FONCTIONS ====================
 
-def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_velo_config, reduction_poids=0):
+def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_velo_config, parc_bus_config, reduction_poids=0):
     """
     Calcule CO2 total du territoire en tenant compte :
     - du mix voiture thermique/électrique
     - du mix vélo électrique/classique
+    - du mix bus thermique/électrique
     - du taux de remplissage
     - de la réduction de poids (tous véhicules)
     
@@ -126,6 +138,14 @@ def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_v
             # km en millions → CO2 en tonnes
             co2_mode = km_territoire[mode] * 1e6 * emission_par_personne / 1000 / 1000  # tonnes CO2
         
+        elif mode == 'bus':
+            # Mix bus thermique/électrique (pas d'allègement sur bus)
+            emission_bus = (
+                parc_bus_config['part_thermique'] / 100 * emissions_parc['bus_thermique'] +
+                parc_bus_config['part_elec'] / 100 * emissions_parc['bus_electrique']
+            )
+            co2_mode = km_territoire[mode] * 1e6 * emission_bus / 1000 / 1000  # tonnes CO2
+        
         elif mode == 'velo':
             # Mix vélo électrique/classique
             emission_velo = (
@@ -134,7 +154,7 @@ def calculer_bilan_territoire(km_territoire, emissions_parc, parc_config, parc_v
             )
             co2_mode = km_territoire[mode] * 1e6 * emission_velo / 1000 / 1000  # tonnes CO2
         
-        elif mode in ['bus', 'train', 'avion', 'marche']:
+        elif mode in ['train', 'avion', 'marche']:
             co2_mode = km_territoire[mode] * 1e6 * emissions_parc[mode] / 1000 / 1000  # tonnes CO2
         else:
             co2_mode = 0
@@ -199,6 +219,11 @@ def calculer_2050():
         'part_classique': st.session_state.scenario['part_velo_classique']
     }
     
+    parc_bus_2050 = {
+        'part_elec': st.session_state.scenario['part_bus_elec'],
+        'part_thermique': st.session_state.scenario['part_bus_thermique']
+    }
+    
     emissions_2050 = st.session_state.emissions.copy()
     emissions_2050['emission_thermique'] = st.session_state.parc_2025['emission_thermique']
     
@@ -208,6 +233,7 @@ def calculer_2050():
         {**st.session_state.emissions, 'emission_thermique': st.session_state.parc_2025['emission_thermique']},
         st.session_state.parc_2025,
         st.session_state.parc_velo_2025,
+        st.session_state.parc_bus_2025,
         reduction_poids=0
     )
     
@@ -216,6 +242,7 @@ def calculer_2050():
         emissions_2050,
         parc_2050,
         parc_velo_2050,
+        parc_bus_2050,
         reduction_poids=st.session_state.scenario['reduction_poids']
     )
     
@@ -352,6 +379,36 @@ with cols[2]:
 
 st.divider()
 
+# Caractéristiques parc bus 2025
+st.subheader("🚌 Caractéristiques parc bus 2025")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.session_state.parc_bus_2025['part_elec'] = st.number_input(
+        "Part bus électriques (%)",
+        min_value=0, max_value=100, value=st.session_state.parc_bus_2025['part_elec'],
+        step=1, help="Parc circulant bus électriques"
+    )
+    st.session_state.parc_bus_2025['part_thermique'] = 100 - st.session_state.parc_bus_2025['part_elec']
+    st.caption(f"Part bus thermiques : {st.session_state.parc_bus_2025['part_thermique']}%")
+
+with col2:
+    st.session_state.emissions['bus_thermique'] = st.number_input(
+        "Émission bus thermique (gCO₂/km ACV)",
+        min_value=0, max_value=300, value=st.session_state.emissions['bus_thermique'],
+        step=5, help="Base Carbone ADEME"
+    )
+
+with col3:
+    st.session_state.emissions['bus_electrique'] = st.number_input(
+        "Émission bus électrique (gCO₂/km ACV)",
+        min_value=0, max_value=100, value=st.session_state.emissions['bus_electrique'],
+        step=5, help="Fabrication + électricité"
+    )
+
+st.divider()
+
 # Caractéristiques parc automobile 2025
 st.subheader("🚗 Caractéristiques parc automobile 2025")
 
@@ -426,15 +483,13 @@ st.divider()
 
 # Facteurs émission autres modes
 with st.expander("⚙️ Facteurs d'émission autres modes (gCO₂/km ACV)"):
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        st.session_state.emissions['bus'] = st.number_input("Bus", 0, 300, st.session_state.emissions['bus'], 10)
         st.session_state.emissions['train'] = st.number_input("Train", 0.0, 50.0, st.session_state.emissions['train'], 0.5)
-    with col2:
         st.session_state.emissions['avion'] = st.number_input("Avion", 0, 500, st.session_state.emissions['avion'], 10, help="impactCO2.fr : 225g")
+    with col2:
         st.session_state.emissions['marche'] = st.number_input("Marche", 0, 10, st.session_state.emissions['marche'], 1)
-    with col3:
-        st.caption("**Sources** : [Base Carbone](https://base-empreinte.ademe.fr/), [impactCO2](https://impactco2.fr)")
+        st.caption("**Sources** : [Base Carbone](https://base-empreinte.ademe.fr/), [impactCO2](https://impactco2.fr/outils/transport)")
 
 st.divider()
 
@@ -459,6 +514,7 @@ bilan_2025 = calculer_bilan_territoire(
     {**st.session_state.emissions, 'emission_thermique': st.session_state.parc_2025['emission_thermique']},
     st.session_state.parc_2025,
     st.session_state.parc_velo_2025,
+    st.session_state.parc_bus_2025,
     reduction_poids=0
 )
 parts_2025 = calculer_parts_modales(st.session_state.km_2025_territoire)
@@ -568,8 +624,26 @@ st.header("🎯 Étape 2 : Construire le scénario 2050")
 
 st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
 
+st.divider()
+st.header("🎯 Étape 2 : Construire le scénario 2050")
+
+st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
+
+st.info("""
+**💡 Hypothèses du scénario 2050 :**
+
+Par souci de simplification pédagogique, nous considérons que :
+- Les **émissions par km par véhicule restent constantes** (sauf voitures via allègement)
+- Seuls l'**électrification** et l'**allègement des véhicules** permettent de réduire les émissions par km
+- Le **report modal** transfère des km vers des modes moins émetteurs
+- La **sobriété** réduit le nombre total de km parcourus
+- Le **taux de remplissage** optimise l'usage des véhicules existants
+
+⚠️ Note : L'électrification du vélo augmente légèrement ses émissions, mais peut favoriser le report modal depuis la voiture (distances plus longues, relief).
+""")
+
 # Leviers avec saisie directe + boutons
-with st.expander("🔧 **LEVIER 1 : Électrification** - Décarboner le parc automobile et vélo", expanded=False):
+with st.expander("🔧 **LEVIER 1 : Électrification** - Décarboner les parcs", expanded=False):
     st.markdown("**Objectif :** Remplacer véhicules thermiques par électriques")
     
     st.markdown("##### 🚗 Parc automobile")
@@ -582,7 +656,18 @@ with st.expander("🔧 **LEVIER 1 : Électrification** - Décarboner le parc aut
     
     st.divider()
     
+    st.markdown("##### 🚌 Parc bus")
+    part_bus_elec_temp = st.slider(
+        "Part bus électriques (%)",
+        min_value=0, max_value=100, value=st.session_state.scenario['part_bus_elec'],
+        step=5, key="lever_part_bus_elec"
+    )
+    st.info(f"Part bus thermiques : **{100 - part_bus_elec_temp}%**")
+    
+    st.divider()
+    
     st.markdown("##### 🚴 Parc vélo")
+    st.caption("⚠️ L'électrification du vélo augmente légèrement ses émissions, mais favorise le report modal depuis la voiture")
     part_velo_elec_temp = st.slider(
         "Part vélos électriques (%)",
         min_value=0, max_value=100, value=st.session_state.scenario['part_velo_elec'],
@@ -709,6 +794,8 @@ with col_btn1:
             'part_thermique': st.session_state.parc_2025['part_thermique'],
             'part_velo_elec': st.session_state.parc_velo_2025['part_elec'],
             'part_velo_classique': st.session_state.parc_velo_2025['part_classique'],
+            'part_bus_elec': st.session_state.parc_bus_2025['part_elec'],
+            'part_bus_thermique': st.session_state.parc_bus_2025['part_thermique'],
             'reduction_poids': 0
         }
         st.session_state.scenario_2050_valide = False
@@ -719,6 +806,8 @@ with col_btn3:
         # Enregistrer les valeurs temporaires dans le scénario
         st.session_state.scenario['part_ve'] = part_ve_temp
         st.session_state.scenario['part_thermique'] = 100 - part_ve_temp
+        st.session_state.scenario['part_bus_elec'] = part_bus_elec_temp
+        st.session_state.scenario['part_bus_thermique'] = 100 - part_bus_elec_temp
         st.session_state.scenario['part_velo_elec'] = part_velo_elec_temp
         st.session_state.scenario['part_velo_classique'] = 100 - part_velo_elec_temp
         st.session_state.scenario['reduction_km'] = reduction_km_temp
@@ -779,7 +868,6 @@ with col2:
 
 with col3:
     if resultats['objectif_atteint']:
-        st.balloons()
         st.success("🏆 **Félicitations !**\n\nVous avez atteint l'objectif SNBC !\n\nMaintenant, à vous de jouer pour expliquer quelles actions mener pour chaque levier.")
     else:
         st.error(f"❌ **Objectif non atteint**\n\nBesoin : -80%\nActuel : -{resultats['reduction_pct']:.1f}%")
@@ -885,17 +973,29 @@ co2_apres_elec_voiture = calculer_scenario_partiel({
 })
 contrib_elec_voiture = co2_2025_base - co2_apres_elec_voiture
 
+co2_apres_elec_bus = calculer_scenario_partiel({
+    'part_ve': st.session_state.scenario['part_ve'],
+    'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_bus_elec': st.session_state.scenario['part_bus_elec'],
+    'part_bus_thermique': st.session_state.scenario['part_bus_thermique']
+})
+contrib_elec_bus = co2_apres_elec_voiture - co2_apres_elec_bus
+
 co2_apres_elec_velo = calculer_scenario_partiel({
     'part_ve': st.session_state.scenario['part_ve'],
     'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_bus_elec': st.session_state.scenario['part_bus_elec'],
+    'part_bus_thermique': st.session_state.scenario['part_bus_thermique'],
     'part_velo_elec': st.session_state.scenario['part_velo_elec'],
     'part_velo_classique': st.session_state.scenario['part_velo_classique']
 })
-contrib_elec_velo = co2_apres_elec_voiture - co2_apres_elec_velo
+contrib_elec_velo = co2_apres_elec_bus - co2_apres_elec_velo
 
 co2_apres_sobriete = calculer_scenario_partiel({
     'part_ve': st.session_state.scenario['part_ve'],
     'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_bus_elec': st.session_state.scenario['part_bus_elec'],
+    'part_bus_thermique': st.session_state.scenario['part_bus_thermique'],
     'part_velo_elec': st.session_state.scenario['part_velo_elec'],
     'part_velo_classique': st.session_state.scenario['part_velo_classique'],
     'reduction_km': st.session_state.scenario['reduction_km']
@@ -905,6 +1005,8 @@ contrib_sobriete = co2_apres_elec_velo - co2_apres_sobriete
 co2_apres_report = calculer_scenario_partiel({
     'part_ve': st.session_state.scenario['part_ve'],
     'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_bus_elec': st.session_state.scenario['part_bus_elec'],
+    'part_bus_thermique': st.session_state.scenario['part_bus_thermique'],
     'part_velo_elec': st.session_state.scenario['part_velo_elec'],
     'part_velo_classique': st.session_state.scenario['part_velo_classique'],
     'reduction_km': st.session_state.scenario['reduction_km'],
@@ -918,6 +1020,8 @@ contrib_report = co2_apres_sobriete - co2_apres_report
 co2_apres_remplissage = calculer_scenario_partiel({
     'part_ve': st.session_state.scenario['part_ve'],
     'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_bus_elec': st.session_state.scenario['part_bus_elec'],
+    'part_bus_thermique': st.session_state.scenario['part_bus_thermique'],
     'part_velo_elec': st.session_state.scenario['part_velo_elec'],
     'part_velo_classique': st.session_state.scenario['part_velo_classique'],
     'reduction_km': st.session_state.scenario['reduction_km'],
@@ -932,6 +1036,8 @@ contrib_remplissage = co2_apres_report - co2_apres_remplissage
 co2_apres_allegement = calculer_scenario_partiel({
     'part_ve': st.session_state.scenario['part_ve'],
     'part_thermique': st.session_state.scenario['part_thermique'],
+    'part_bus_elec': st.session_state.scenario['part_bus_elec'],
+    'part_bus_thermique': st.session_state.scenario['part_bus_thermique'],
     'part_velo_elec': st.session_state.scenario['part_velo_elec'],
     'part_velo_classique': st.session_state.scenario['part_velo_classique'],
     'reduction_km': st.session_state.scenario['reduction_km'],
@@ -948,11 +1054,12 @@ contrib_allegement = co2_apres_remplissage - co2_apres_allegement
 fig_cascade = go.Figure(go.Waterfall(
     name = "Réduction CO₂",
     orientation = "v",
-    measure = ["absolute", "relative", "relative", "relative", "relative", "relative", "relative", "total"],
-    x = ["2025", "Élec. voitures", "Élec. vélos", "Sobriété", "Report modal", "Remplissage", "Allègement", "2050"],
+    measure = ["absolute", "relative", "relative", "relative", "relative", "relative", "relative", "relative", "total"],
+    x = ["2025", "Élec. voitures", "Élec. bus", "Élec. vélos", "Sobriété", "Report modal", "Remplissage", "Allègement", "2050"],
     textposition = "outside",
     text = [f"{co2_2025_base:.0f}", 
             f"-{contrib_elec_voiture:.0f}" if contrib_elec_voiture > 0 else f"+{abs(contrib_elec_voiture):.0f}",
+            f"-{contrib_elec_bus:.0f}" if contrib_elec_bus > 0 else f"+{abs(contrib_elec_bus):.0f}",
             f"-{contrib_elec_velo:.0f}" if contrib_elec_velo > 0 else f"+{abs(contrib_elec_velo):.0f}",
             f"-{contrib_sobriete:.0f}" if contrib_sobriete > 0 else f"+{abs(contrib_sobriete):.0f}",
             f"-{contrib_report:.0f}" if contrib_report > 0 else f"+{abs(contrib_report):.0f}",
@@ -961,6 +1068,7 @@ fig_cascade = go.Figure(go.Waterfall(
             f"{co2_apres_allegement:.0f}"],
     y = [co2_2025_base, 
          -contrib_elec_voiture,
+         -contrib_elec_bus,
          -contrib_elec_velo,
          -contrib_sobriete,
          -contrib_report,
@@ -1111,6 +1219,7 @@ with st.expander("❓ Rôle de chaque levier"):
     st.markdown(f"""
     **Votre scénario :**
     - Électrification voitures : {st.session_state.scenario['part_ve']}%
+    - Électrification bus : {st.session_state.scenario['part_bus_elec']}%
     - Électrification vélos : {st.session_state.scenario['part_velo_elec']}%
     - Sobriété : {st.session_state.scenario['reduction_km']:+}%
     - Report modal voiture : {st.session_state.scenario['report_velo'] + st.session_state.scenario['report_bus'] + st.session_state.scenario['report_train']}%
@@ -1154,6 +1263,7 @@ BILAN 2025 :
 
 SCÉNARIO 2050 :
 - Électrification voitures : {st.session_state.scenario['part_ve']}%
+- Électrification bus : {st.session_state.scenario['part_bus_elec']}%
 - Électrification vélos : {st.session_state.scenario['part_velo_elec']}%
 - Sobriété : {st.session_state.scenario['reduction_km']:+}%
 - Report modal : {st.session_state.scenario['report_velo'] + st.session_state.scenario['report_bus'] + st.session_state.scenario['report_train']}% (voiture)
