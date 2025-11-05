@@ -779,7 +779,6 @@ with col2:
 
 with col3:
     if resultats['objectif_atteint']:
-        st.balloons()
         st.success("🏆 **Félicitations !**\n\nVous avez atteint l'objectif SNBC !\n\nMaintenant, à vous de jouer pour expliquer quelles actions mener pour chaque levier.")
     else:
         st.error(f"❌ **Objectif non atteint**\n\nBesoin : -80%\nActuel : -{resultats['reduction_pct']:.1f}%")
