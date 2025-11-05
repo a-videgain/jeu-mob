@@ -920,4 +920,79 @@ with st.expander("❓ Rôle de chaque levier"):
     - Électrification : {st.session_state.scenario['part_ve']}%
     - Allègement : -{st.session_state.scenario['reduction_poids']}%
     
-💡 Testez en n'activant qu'un seul levier à la fois pour mesurer son impact.
+    💡 Testez en n'activant qu'un seul levier à la fois pour mesurer son impact.
+    """)
+
+# ==================== SYNTHÈSE ====================
+
+st.divider()
+st.header("📚 Points clés à retenir")
+
+st.info("""
+**🎯 Enseignements :**
+
+1. **Approche systémique** : Combiner TOUS les leviers
+2. **Ordre des actions** : Sobriété → Report modal → Décarbonation
+3. **Échelle territoire** : 350 000 habitants = leviers collectifs nécessaires
+4. **Acceptabilité sociale** : Changements comportementaux = enjeu majeur
+5. **Temporalité** : 2050 = 25 ans. Agir MAINTENANT.
+""")
+
+# ==================== EXPORT ====================
+
+st.divider()
+st.subheader("💾 Exporter le scénario")
+
+resume = f"""
+═══════════════════════════════════════════════════
+SCÉNARIO MOBILITÉ PAYS BASQUE 2050
+═══════════════════════════════════════════════════
+Territoire : Communauté Pays Basque (350 000 habitants)
+
+BILAN 2025 :
+- Km totaux : {bilan_2025['km_total_territoire']:.0f} Mkm/an
+- CO₂ total : {bilan_2025['co2_total_territoire']:.0f} tonnes/an
+- CO₂/hab : {co2_par_hab:.0f} kg/an
+
+SCÉNARIO 2050 :
+- Sobriété : {st.session_state.scenario['reduction_km']:+}%
+- Report modal : {st.session_state.scenario['report_velo'] + st.session_state.scenario['report_bus'] + st.session_state.scenario['report_train']}% (voiture)
+- Électrification : {st.session_state.scenario['part_ve']}%
+- Taux remplissage : {st.session_state.scenario['taux_remplissage']:.1f}
+- Allègement : -{st.session_state.scenario['reduction_poids']}%
+
+RÉSULTATS 2050 :
+- CO₂ total : {resultats['bilan_2050']['co2_total_territoire']:.0f} tonnes/an
+- CO₂/hab : {co2_par_hab_2050:.0f} kg/an
+- Réduction : {resultats['reduction_pct']:.1f}%
+- Objectif : {"✅ ATTEINT" if resultats['objectif_atteint'] else "❌ NON ATTEINT"}
+
+═══════════════════════════════════════════════════
+Sources : EMD Pays Basque, PCAET, ENTD 2019
+         Base Carbone ADEME, impactCO2.fr
+═══════════════════════════════════════════════════
+"""
+
+st.download_button(
+    label="📥 Télécharger (TXT)",
+    data=resume,
+    file_name=f"scenario_PB_2050_{resultats['reduction_pct']:.0f}pct.txt",
+    mime="text/plain",
+    use_container_width=True
+)
+
+# ==================== FOOTER ====================
+
+st.divider()
+st.markdown("""
+<div style='text-align: center; color: #6b7280; font-size: 0.875rem; padding: 1rem;'>
+    <p><strong>📚 Sources :</strong> 
+        EMD Pays Basque • PCAET • ENTD 2019 • 
+        <a href='https://base-empreinte.ademe.fr/' target='_blank'>Base Carbone ADEME</a> • 
+        <a href='https://impactco2.fr' target='_blank'>impactCO2.fr</a>
+    </p>
+    <p style='margin-top: 1rem;'>
+        <strong>🎓 Application pédagogique</strong> • Communauté Pays Basque (350 000 hab) • 2025-2050
+    </p>
+</div>
+""", unsafe_allow_html=True)
