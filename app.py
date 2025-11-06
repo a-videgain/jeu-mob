@@ -500,7 +500,6 @@ col_space1, col_btn, col_space2 = st.columns([1, 1, 1])
 with col_btn:
     if st.button("✅ Valider le bilan 2025", type="primary", use_container_width=True):
         st.session_state.bilan_2025_valide = True
-        enregistrer_scenario(st.session_state.code_groupe, 'bilan_2025')
         st.rerun()
 
 # Vérification validation
@@ -817,7 +816,6 @@ with col_btn3:
         st.session_state.scenario['taux_remplissage'] = taux_remplissage_temp
         st.session_state.scenario['reduction_poids'] = reduction_poids_temp
         st.session_state.scenario_2050_valide = True
-        enregistrer_scenario(st.session_state.code_groupe, 'scenario_2050')
         st.rerun()
 
 # Vérifier validation
