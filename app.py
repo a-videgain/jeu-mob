@@ -772,6 +772,8 @@ st.header("🎯 Étape 2 : Construire le scénario 2050")
 
 st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
 
+# ==================== ÉTAPE 2 : SCÉNARIO 2050 ====================
+
 st.divider()
 st.header("🎯 Étape 2 : Construire le scénario 2050")
 
@@ -807,7 +809,8 @@ with st.expander("🔧 **LEVIER 1 : Électrification** - Décarboner les parcs",
     st.markdown("##### 🚌 Parc bus")
     part_bus_elec_temp = st.slider(
         "Part bus électriques (%)",
-        min_value=0, max_value=100, value=st.session_state.scenario['part_bus_elec'],
+        min_value=0, max_value=100, 
+        value=int(st.session_state.scenario.get('part_bus_elec', st.session_state.parc_bus_2025['part_elec'])),
         step=5, key="lever_part_bus_elec"
     )
     st.info(f"Part bus thermiques : **{100 - part_bus_elec_temp}%**")
