@@ -367,8 +367,8 @@ def calculer_2050():
     }
     
     parc_bus_2050 = {
-        'part_elec': st.session_state.scenario['part_bus_elec'],
-        'part_thermique': st.session_state.scenario['part_bus_thermique']
+        'part_elec': st.session_state.scenario.get('part_bus_elec', st.session_state.parc_bus_2025['part_elec']),
+        'part_thermique': st.session_state.scenario.get('part_bus_thermique', st.session_state.parc_bus_2025['part_thermique'])
     }
     
     emissions_2050 = st.session_state.emissions.copy()
