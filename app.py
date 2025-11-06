@@ -669,8 +669,8 @@ parts_2025 = calculer_parts_modales(st.session_state.km_2025_territoire)
 
 # Calculs par habitant
 co2_par_hab = (bilan_2025['co2_total_territoire'] * 1000) / POPULATION_PB  # kg/hab/an
-km_par_hab = (bilan_2025['km_total_territoire'] * 1e6) / POPULATION_PB / 52  # km/hab/semaine
-depl_par_hab_jour = sum(st.session_state.nb_depl_hab.values())
+km_par_hab_jour = (bilan_2025['km_total_territoire'] * 1e6) / POPULATION_PB / 365  # km/hab/jour
+depl_par_hab_jour = sum(st.session_state.nb_depl_hab.values()) / 365  # dépl/hab/jour
 
 # Calcul équivalent Terre-Soleil
 nb_terre_soleil = (bilan_2025['km_total_territoire'] * 1e6) / DISTANCE_TERRE_SOLEIL
@@ -764,13 +764,6 @@ with col2:
     fig_emissions.update_traces(texttemplate='%{text:.0f} kg', textposition='outside')
     fig_emissions.update_layout(showlegend=False)
     st.plotly_chart(fig_emissions, use_container_width=True)
-
-# ==================== ÉTAPE 2 : SCÉNARIO 2050 ====================
-
-st.divider()
-st.header("🎯 Étape 2 : Construire le scénario 2050")
-
-st.warning("**🎯 Objectif SNBC : Réduire d'environ 80% les émissions du secteur transport d'ici 2050** (par rapport à 1990-2015)")
 
 # ==================== ÉTAPE 2 : SCÉNARIO 2050 ====================
 
